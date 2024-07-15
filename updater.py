@@ -1,4 +1,4 @@
-# 0.3.1
+# 0.3.2
 from ftplib import error_perm
 import ftplib
 from datetime import datetime, timedelta
@@ -182,6 +182,36 @@ def upgrade(ftp_info, remote, local):
         exception_handler(type(e), e, e.__traceback__)
         return None
 
+def upload(ftp_info, date_path):
+    addr, user, passw = ftp_info
+    try:
+        ftp = ftplib.FTP(addr)
+        ftp.login(user, passw)
+
+        for name in os.listdir(date_path):
+            localpath = os.path.join(date_path, name)
+            if os.path.isfile(localpath):
+                ftp.storbinary('STOR ' + name, open(localpath, 'rb'))
+            elif os.path.isdir(localpath):
+                try:
+                    ftp.mkd(name)
+                except error_perm as e:
+                    if not e.args[0].startswith('550'):
+                        raise
+                ftp.cwd(name)
+                for file in os.listdir(localpath):
+                    file_path = os.path.join(localpath, file)
+                    if os.path.isfile(file_path):
+                        remote_file_path = os.path.join(name, file).replace("\\", "/")
+                        ftp.storbinary('STOR ' + file, open(file_path, 'rb'))
+                ftp.cwd("..")
+        ftp.quit()
+        log_console_out(f"Отправка данных на сервер завершена")
+        return True
+    except Exception as e:
+        log_console_out(f"Error: Отправка данных на сервер не удалась")
+        exception_handler(type(e), e, e.__traceback__)
+
 def clear_temp():
     try:
         main_file = os.path.abspath(sys.argv[0])
@@ -203,6 +233,14 @@ def main(main_file, temp_dir):
         config = read_config_json(json_file)
         ftp_server, ftp_username, ftp_password = ftp_connect(config)
         ftp_info = (ftp_server, ftp_username, ftp_password)  # создаём кортеж
+
+        try:
+            date_path = "..\\date" # путь откуда берём данные для отправки
+            os.chdir(date_path) # меняем рабочий каталог с корневого каталога для скрипта на указанный каталог здесь
+            upload(ftp_info, date_path)
+        except Exception as e:
+            log_console_out(f"Error: Отправка данных на сервер не удалась")
+            exception_handler(type(e), e, e.__traceback__)
 
         try:
             log_console_out("Проверяется наличие обновлений")
