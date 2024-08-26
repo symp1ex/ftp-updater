@@ -11,3 +11,5 @@ The script "get-hash.py" is a kind of fool proof. When updating from an ftp serv
 
 The scripts "crypto-key.py" and "gen-key.py" are used to encrypt the login and password for the fpt server so as not to store them in clear form in "updater.json".
 Run the script "gen-key.py" to generate your unique key. Replace the value of "key" in "updater.py" (line 95) with this key before compiling "updater.py". In the "crypto-key.py" script, specify the key obtained at the previous stage (line 18), indicate your ftp server login (line 19) and password (line 20), and then run "crypto-key.py". As a result, you will receive a text document with the login and password from the ftp server in encrypted form, which must be used in “updater.json”.
+
+The path for sending files to ftp-server is written directly in the code: "..\\date", i.e. the entire contents of the "date" folder is sent, which should be located in the root of the main application.
