@@ -1,10 +1,11 @@
-# 0.3.2
+# 0.4.3
 from ftplib import error_perm
 import ftplib
 from datetime import datetime, timedelta
 from cryptography.fernet import Fernet
 import sys
 import os
+import time
 import json
 import win32api
 import stat
@@ -30,7 +31,7 @@ def get_exe_metadata(file_path):
         version = info['FileVersionMS'] >> 16, info['FileVersionMS'] & 0xFFFF, info['FileVersionLS'] >> 16, info['FileVersionLS'] & 0xFFFF
         return '.'.join(map(str, version))
     except Exception as e:
-        log_console_out(f"Error: Не удалось получить версию исполняемого файла")
+        log_console_out(f"Error: Не удалось проверить версию исходного файла")
         exception_handler(type(e), e, e.__traceback__)
         return None
 
@@ -116,7 +117,7 @@ def local_version(config, parent_directory):
             log_console_out(f"Версия исходного файла: {local_version}")
             return local_version
     except Exception as e:
-        log_console_out(f"Error: не удалось получить версию исходного файла")
+        log_console_out(f"Error: не удалось проверить версию исходного файла")
         exception_handler(type(e), e, e.__traceback__)
 
 def ftp_version(config):
@@ -133,7 +134,7 @@ def ftp_version(config):
                 log_console_out(f"Версия файла на сервере: {ftp_version}")
                 return ftp_version, file_description, size_file
     except Exception as e:
-        log_console_out(f"Error: не удалось получить версию файла на ftp-сервере")
+        log_console_out(f"Error: не удалось проверить версию файла на ftp-сервере")
         exception_handler(type(e), e, e.__traceback__)
 
 def updater(ftp, local):
@@ -155,13 +156,14 @@ def upgrade(ftp_info, remote, local):
         try:
             ftp = ftplib.FTP(addr)
             ftp.login(user, passw)
-            ftp.cwd(remote)
-        except:
+            ftp.cwd(remote.replace('\\', '/'))
+        except Exception as e:
             try:
                 ftp.quit()
             except:
                 pass
             log_console_out(f'Error: Invalid input ftp data!')
+            exception_handler(type(e), e, e.__traceback__)
             return False
 
         if not os.path.exists(local):
@@ -176,13 +178,14 @@ def upgrade(ftp_info, remote, local):
                 dirs.append(filename)
         ftp.quit()
         res = map(lambda d: upgrade(ftp_info, os.path.join(remote, d), os.path.join(local, d)), dirs)
+        log_console_out("Обновление установлено")
         return reduce(operator.iand, res, True)
     except Exception as e:
         log_console_out(f"Error: не удалось произвести обновление")
         exception_handler(type(e), e, e.__traceback__)
         return None
 
-def upload(ftp_info, date_path):
+def upload(ftp_info, date_path, send_timeout, max_attempts, attempt):
     addr, user, passw = ftp_info
     try:
         ftp = ftplib.FTP(addr)
@@ -209,15 +212,22 @@ def upload(ftp_info, date_path):
         log_console_out(f"Отправка данных на сервер завершена")
         return True
     except Exception as e:
-        log_console_out(f"Error: Отправка данных на сервер не удалась")
-        exception_handler(type(e), e, e.__traceback__)
+        if attempt < max_attempts:
+            log_console_out(f"Попытка ({attempt}) отправки данных не удалась. Повторная попытка через ({send_timeout}) секунд...")
+            attempt += 1
+            time.sleep(send_timeout)
+            return upload(ftp_info, date_path, send_timeout, max_attempts, attempt)
+        else:
+            log_console_out(f"Error: Отправка данных на сервер не удалась после ({max_attempts}) попыток")
+            exception_handler(type(e), e, e.__traceback__)
+            return False
 
 def clear_temp():
     try:
         main_file = os.path.abspath(sys.argv[0])
         temp_dir = os.path.dirname(main_file)
         # Команда для удаления файла
-        command = f"timeout /t 50 > nul && rd /q/s \"{temp_dir}\""
+        command = f"timeout /t 60 > nul && rd /q/s \"{temp_dir}\""
         working_directory = os.path.dirname(os.path.dirname(temp_dir))
         # Выполняем команду в отдельном процессе
         subprocess.Popen(command, shell=True, cwd=working_directory)
@@ -235,9 +245,11 @@ def main(main_file, temp_dir):
         ftp_info = (ftp_server, ftp_username, ftp_password)  # создаём кортеж
 
         try:
-            date_path = "..\\date" # путь откуда берём данные для отправки
-            os.chdir(date_path) # меняем рабочий каталог с корневого каталога для скрипта на указанный каталог здесь
-            upload(ftp_info, date_path)
+            date_path = config.get("send_path", "..\\date")  # путь откуда берём данные для отправки
+            send_timeout = config.get("send_timeout", 10)  # тайм-аут для отправки
+            max_attempts = config.get("send_count", 5)  # количество попыток отправки
+            os.chdir(date_path)  # меняем рабочий каталог с корневого каталога для скрипта на указанный каталог здесь
+            upload(ftp_info, date_path, send_timeout, max_attempts, attempt=1)
         except Exception as e:
             log_console_out(f"Error: Отправка данных на сервер не удалась")
             exception_handler(type(e), e, e.__traceback__)
@@ -259,7 +271,6 @@ def main(main_file, temp_dir):
                     remote = config.get("ftp_path") # папка на фтп с которой качаются все файлы для обновления
 
                     upgrade(ftp_info, remote, "..\\")
-                    log_console_out("Обновление установлено")
             else:
                 log_console_out("Обновление не найдено")
         except Exception as e:

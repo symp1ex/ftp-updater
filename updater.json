@@ -2,6 +2,9 @@
     "ftp_server": "ftp.server.io",
     "ftp_username": "gAAAAABmUkMKSB94Y9_UjyUNxUYT8Iefsdicdo7UZKXckQmu1-9yUaEVgr1ulPNIYwN_uuEis3VE6c2k2qipkov-nR75Fpdjkg==",
     "ftp_password": "gAAAAABmUkMKDwgO114MDhiA3ERTRUwwr54YYk6DtkEhmNQLBiPQ5YSm66F4PGa-nhige2Pd7F9Mfp-5jqff8EnPERKJFmB3HA==",
+    "send_path": "..\\date",
+    "send_count": 5,
+    "send_timeout": 10,
     "ftp_path": "updater",
     "exe_name": "getad.exe"
 }
