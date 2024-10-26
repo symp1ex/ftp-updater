@@ -1,7 +1,5 @@
-# 0.4.3
-from ftplib import error_perm
+# 0.4.8
 import ftplib
-from datetime import datetime, timedelta
 from cryptography.fernet import Fernet
 import sys
 import os
@@ -12,7 +10,7 @@ import stat
 import hashlib
 import hmac
 from functools import reduce
-import operator, shutil, subprocess
+import operator, subprocess, shutil
 from logger import log_console_out, exception_handler
 
 def read_config_json(json_file):
@@ -54,7 +52,8 @@ def get_size_file(file_path):
     except Exception:
         pass
 
-def download_temp_file(ftp_server, ftp_username, ftp_password, config):
+def download_temp_file(ftp_server, ftp_username, ftp_password, config, send_timeout, max_attempts, attempt):
+    ftp = None
     try:
         main_file = os.path.abspath(sys.argv[0])  # получаем текущую директорию
         ftp_path = config.get("ftp_path")
@@ -76,8 +75,23 @@ def download_temp_file(ftp_server, ftp_username, ftp_password, config):
 
         return local_file_path
     except Exception as e:
-        log_console_out(f"Error: не удалось загрузить временный файл для проверки обновления")
-        exception_handler(type(e), e, e.__traceback__)
+        if attempt < max_attempts:
+            try:
+                ftp.quit()
+            except:
+                pass
+            log_console_out(f"Попытка ({attempt}) загрузить временный файл для проверки обновления, не удалась. Повторная попытка через ({send_timeout}) секунд...")
+            attempt += 1
+            time.sleep(send_timeout)
+            return download_temp_file(ftp_server, ftp_username, ftp_password, config, send_timeout, max_attempts, attempt)
+        else:
+            try:
+                ftp.quit()
+            except:
+                pass
+            log_console_out(f"Error: не удалось загрузить временный файл для проверки обновления")
+            exception_handler(type(e), e, e.__traceback__)
+            return None
 
 # получение подписи на основе .exe файла на фтп-сервере
 def sign_metadata(size, version):
@@ -120,10 +134,10 @@ def local_version(config, parent_directory):
         log_console_out(f"Error: не удалось проверить версию исходного файла")
         exception_handler(type(e), e, e.__traceback__)
 
-def ftp_version(config):
+def ftp_version(config, send_timeout, max_attempts, attempt):
     try:
         ftp_server, ftp_username, ftp_password = ftp_connect(config)
-        ftp_file_path = download_temp_file(ftp_server, ftp_username, ftp_password, config)
+        ftp_file_path = download_temp_file(ftp_server, ftp_username, ftp_password, config, send_timeout, max_attempts, attempt)
         if ftp_file_path:
             # Получение версии файла на фтп
             ftp_version = get_exe_metadata(ftp_file_path)
@@ -150,7 +164,8 @@ def updater(ftp, local):
             return False  # Версия первого файла ниже
     return False  # Версии идентичны
 
-def upgrade(ftp_info, remote, local):
+def upgrade(ftp_info, remote, local, send_timeout, max_attempts, attempt):
+    ftp = None
     try:
         addr, user, passw = ftp_info
         try:
@@ -158,12 +173,28 @@ def upgrade(ftp_info, remote, local):
             ftp.login(user, passw)
             ftp.cwd(remote.replace('\\', '/'))
         except Exception as e:
-            try:
-                ftp.quit()
-            except:
-                pass
-            log_console_out(f'Error: Invalid input ftp data!')
-            exception_handler(type(e), e, e.__traceback__)
+            # try:
+            #     ftp.quit()
+            # except:
+            #     pass
+            if attempt < max_attempts:
+                try:
+                    ftp.quit()
+                except:
+                    pass
+                log_console_out(
+                    f"При попытке ({attempt}) скачать обновление, была потеряна связь с ftp-сервером. Повторная попытка через ({send_timeout}) секунд...")
+                attempt += 1
+                time.sleep(send_timeout)
+                return upgrade(ftp_info, remote, local, send_timeout, max_attempts, attempt)
+            else:
+                try:
+                    ftp.quit()
+                except:
+                    pass
+                log_console_out(f'Error: Invalid input ftp data!')
+                log_console_out(f"Error: Не удалось произвести обновление после ({max_attempts}) попыток")
+                exception_handler(type(e), e, e.__traceback__)
             return False
 
         if not os.path.exists(local):
@@ -177,15 +208,33 @@ def upgrade(ftp_info, remote, local):
             except:
                 dirs.append(filename)
         ftp.quit()
-        res = map(lambda d: upgrade(ftp_info, os.path.join(remote, d), os.path.join(local, d)), dirs)
-        log_console_out("Обновление установлено")
-        return reduce(operator.iand, res, True)
+        res = map(lambda d: upgrade(ftp_info, os.path.join(remote, d), os.path.join(local, d), send_timeout, max_attempts, attempt), dirs)
+
+        update_successful = reduce(operator.iand, res, True)
+        if update_successful:
+            log_console_out("Обновление установлено")  # Выводим сообщение только если обновление успешно
+        return update_successful
     except Exception as e:
-        log_console_out(f"Error: не удалось произвести обновление")
-        exception_handler(type(e), e, e.__traceback__)
-        return None
+        if attempt < max_attempts:
+            try:
+                ftp.quit()
+            except:
+                pass
+            log_console_out(f"Попытка ({attempt}) скачать обновление, не удалась. Повторная попытка через ({send_timeout}) секунд...")
+            attempt += 1
+            time.sleep(send_timeout)
+            return upgrade(ftp_info, remote, local, send_timeout, max_attempts, attempt)
+        else:
+            try:
+                ftp.quit()
+            except:
+                pass
+            log_console_out(f"Error: Не удалось произвести обновление после ({max_attempts}) попыток")
+            exception_handler(type(e), e, e.__traceback__)
+            return None
 
 def upload(ftp_info, date_path, send_timeout, max_attempts, attempt):
+    ftp = None
     addr, user, passw = ftp_info
     try:
         ftp = ftplib.FTP(addr)
@@ -198,7 +247,7 @@ def upload(ftp_info, date_path, send_timeout, max_attempts, attempt):
             elif os.path.isdir(localpath):
                 try:
                     ftp.mkd(name)
-                except error_perm as e:
+                except ftplib.error_perm as e:
                     if not e.args[0].startswith('550'):
                         raise
                 ftp.cwd(name)
@@ -213,11 +262,19 @@ def upload(ftp_info, date_path, send_timeout, max_attempts, attempt):
         return True
     except Exception as e:
         if attempt < max_attempts:
+            try:
+                ftp.quit()
+            except:
+                pass
             log_console_out(f"Попытка ({attempt}) отправки данных не удалась. Повторная попытка через ({send_timeout}) секунд...")
             attempt += 1
             time.sleep(send_timeout)
             return upload(ftp_info, date_path, send_timeout, max_attempts, attempt)
         else:
+            try:
+                ftp.quit()
+            except:
+                pass
             log_console_out(f"Error: Отправка данных на сервер не удалась после ({max_attempts}) попыток")
             exception_handler(type(e), e, e.__traceback__)
             return False
@@ -257,7 +314,7 @@ def main(main_file, temp_dir):
         try:
             log_console_out("Проверяется наличие обновлений")
             local = local_version(config, "..")
-            ftp, description, size_file = ftp_version(config)
+            ftp, description, size_file = ftp_version(config, send_timeout, max_attempts, attempt=1)
             signature = sign_metadata(ftp, size_file)
             status_update = updater(ftp, local)
 
@@ -270,7 +327,8 @@ def main(main_file, temp_dir):
 
                     remote = config.get("ftp_path") # папка на фтп с которой качаются все файлы для обновления
 
-                    upgrade(ftp_info, remote, "..\\")
+                    log_console_out("Начато обновление")
+                    upgrade(ftp_info, remote, "..\\", send_timeout, max_attempts, attempt=1)
             else:
                 log_console_out("Обновление не найдено")
         except Exception as e:

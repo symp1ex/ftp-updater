@@ -1,6 +1,8 @@
 # ftp-updater
 Utility for updating Windows applications from an ftp server.
 
+The releases contain a compiled test version that accepts data for connecting to an FTP server (login and password) in clear text, without encryption. You can use it, but for security purposes I recommend reading the description below and rebuilding your version using encryption and unique keys.
+
 It is assumed that the compiled executable file of the utility is located in the "updater" directory; the "updater" directory must be located in the root of the application being updated. 
 The operating logic is as follows: the utility checks the version of the exe file specified in the config ("updater.json") ("exe_name"), which lies next to the "updater" directory. Then it checks the file version on the ftp server along the path that is also specified in the config (“ftp_path”). If the file version on the ftp server is higher, then the utility downloads the entire contents of the "ftp_path" directory, preserving its structure. 
 When launched, the utility itself makes a copy of itself into a temporary folder and works from it; this is done so that the utility can update itself.
