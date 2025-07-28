@@ -4,24 +4,16 @@ from cryptography.fernet import Fernet
 import sys
 import os
 import time
-import json
 import win32api
 import stat
 import hashlib
 import hmac
 from functools import reduce
 import operator, subprocess, shutil
+import configs
 from logger import log_console_out, exception_handler
+import about
 
-def read_config_json(json_file):
-    try:
-        with open(json_file, "r", encoding="utf-8") as file:
-            config = json.load(file)
-            return config
-    except FileNotFoundError:
-        return None
-    except json.JSONDecodeError:
-        return None
 
 def get_exe_metadata(file_path):
     try:
@@ -52,12 +44,11 @@ def get_size_file(file_path):
     except Exception:
         pass
 
-def download_temp_file(ftp_server, ftp_username, ftp_password, config, send_timeout, max_attempts, attempt):
+def download_temp_file(ftp_server, ftp_username, ftp_password, ftp_path, config, send_timeout, max_attempts, attempt):
     ftp = None
     try:
         main_file = os.path.abspath(sys.argv[0])  # получаем текущую директорию
-        ftp_path = config.get("ftp_path")
-        exe_name = config.get("exe_name")
+        exe_name = config["update"].get("exe_name")
         remote_file_path = f"{ftp_path}/{exe_name}"  # путь до файла на фтп с которым сравнивается версия и подпись
         # Установка соединения с FTP сервером
         ftp = ftplib.FTP(ftp_server)
@@ -83,7 +74,7 @@ def download_temp_file(ftp_server, ftp_username, ftp_password, config, send_time
             log_console_out(f"Попытка ({attempt}) загрузить временный файл для проверки обновления, не удалась. Повторная попытка через ({send_timeout}) секунд...")
             attempt += 1
             time.sleep(send_timeout)
-            return download_temp_file(ftp_server, ftp_username, ftp_password, config, send_timeout, max_attempts, attempt)
+            return download_temp_file(ftp_server, ftp_username, ftp_password, ftp_path, config, send_timeout, max_attempts, attempt)
         else:
             try:
                 ftp.quit()
@@ -117,14 +108,20 @@ def decrypt_data(encrypted_data):
 
 # Параметры FTP сервера
 def ftp_connect(config):
-    ftp_server = config.get("ftp_server")
-    ftp_username = decrypt_data(config.get("ftp_username"))
-    ftp_password = decrypt_data(config.get("ftp_password"))
+    ftp_server = config["ftp"].get("ftp_server")
+    encryption_enbled = config["ftp"]["userdata"].get("encryption")
+
+    if encryption_enbled == False:
+        ftp_username = config["ftp"]["userdata"].get("ftp_username")
+        ftp_password = config["ftp"]["userdata"].get("ftp_password")
+    else:
+        ftp_username = decrypt_data(config["ftp"]["userdata"].get("ftp_username"))
+        ftp_password = decrypt_data(config["ftp"]["userdata"].get("ftp_password"))
     return ftp_server, ftp_username, ftp_password
 
 def local_version(config, parent_directory):
     try:
-        exe_name = config.get("exe_name")
+        exe_name = config["update"].get("exe_name")
         file_path = f"{parent_directory}\\{exe_name}" #путь до локального файла с которым сравнивается версия
         local_version = get_exe_metadata(file_path)
         if local_version:
@@ -134,15 +131,16 @@ def local_version(config, parent_directory):
         log_console_out(f"Error: не удалось проверить версию исходного файла")
         exception_handler(type(e), e, e.__traceback__)
 
-def ftp_version(config, send_timeout, max_attempts, attempt):
+def ftp_version(config, remote_path, send_timeout, max_attempts, attempt):
     try:
         ftp_server, ftp_username, ftp_password = ftp_connect(config)
-        ftp_file_path = download_temp_file(ftp_server, ftp_username, ftp_password, config, send_timeout, max_attempts, attempt)
+        ftp_file_path = download_temp_file(ftp_server, ftp_username, ftp_password, remote_path, config, send_timeout, max_attempts, attempt)
         if ftp_file_path:
             # Получение версии файла на фтп
             ftp_version = get_exe_metadata(ftp_file_path)
             size_file = get_size_file(ftp_file_path)
             file_description = get_file_description(ftp_file_path)
+            time.sleep(2)
             os.remove(ftp_file_path)
             if ftp_version:
                 log_console_out(f"Версия файла на сервере: {ftp_version}")
@@ -295,47 +293,60 @@ def clear_temp():
 def main(main_file, temp_dir):
     if main_file.startswith(temp_dir): # если udater запущен из временной директории, то запускаем процесс обновления
         log_console_out(f"updater.exe запущен")
+        log_console_out(f"Версия исполянемого файла: {about.version}")
 
         json_file = os.path.join(os.getcwd(), "updater.json")
-        config = read_config_json(json_file)
+        config = configs.read_config_file(json_file, create=True)
         ftp_server, ftp_username, ftp_password = ftp_connect(config)
         ftp_info = (ftp_server, ftp_username, ftp_password)  # создаём кортеж
 
-        try:
-            date_path = config.get("send_path", "..\\date")  # путь откуда берём данные для отправки
-            send_timeout = config.get("send_timeout", 10)  # тайм-аут для отправки
-            max_attempts = config.get("send_count", 5)  # количество попыток отправки
-            os.chdir(date_path)  # меняем рабочий каталог с корневого каталога для скрипта на указанный каталог здесь
-            upload(ftp_info, date_path, send_timeout, max_attempts, attempt=1)
-        except Exception as e:
-            log_console_out(f"Error: Отправка данных на сервер не удалась")
-            exception_handler(type(e), e, e.__traceback__)
+        send_data_enbled = config["send_data"].get("enabled")
+        if send_data_enbled == True:
+            try:
+                date_path = config["send_data"].get("local_path", "..\\date")  # путь откуда берём данные для отправки
+                max_attempts = config["send_data"].get("attempt_count", 5)  # количество попыток отправки
+                send_timeout = config["send_data"].get("attempt_timeout", 10)  # тайм-аут для отправки
+                os.chdir(date_path)  # меняем рабочий каталог с корневого каталога для скрипта на указанный каталог здесь
+                upload(ftp_info, date_path, send_timeout, max_attempts, attempt=1)
+            except Exception as e:
+                log_console_out(f"Error: Отправка данных на сервер не удалась")
+                exception_handler(type(e), e, e.__traceback__)
 
-        try:
-            log_console_out("Проверяется наличие обновлений")
-            local = local_version(config, "..")
-            ftp, description, size_file = ftp_version(config, send_timeout, max_attempts, attempt=1)
-            signature = sign_metadata(ftp, size_file)
-            status_update = updater(ftp, local)
+        update_enbled = config["update"].get("enabled")
+        if update_enbled == True:
+            max_attempts = config["update"].get("attempt_count", 5)  # количество попыток отправки
+            send_timeout = config["update"].get("attempt_timeout", 10)  # тайм-аут для отправки
 
-            if status_update == True:
-                log_console_out("Найдено обновление")
-                if not signature == description:
-                    log_console_out("Файл на сервере не прошёл проверку подлинности")
-                else:
-                    log_console_out("Проверка подлинноcти пройдена")
+            try:
+                remote_path = config["update"].get("ftp_path")  # папка на фтп с которой качаются все файлы для обновления
 
-                    remote = config.get("ftp_path") # папка на фтп с которой качаются все файлы для обновления
+                log_console_out("Проверяется наличие обновлений")
+                local = local_version(config, "..")
+                ftp, description, size_file = ftp_version(config, remote_path, send_timeout, max_attempts, attempt=1)
+                status_update = updater(ftp, local)
 
+                if status_update == True:
+                    log_console_out("Найдено обновление")
+                    check_signature_disabled_key = config["update"].get("signature_check_disable_key", 0)
+
+                    if not check_signature_disabled_key == "aTdW<<9XyeqNM*LS2<":
+                        signature = sign_metadata(ftp, size_file)
+                        if not signature == description:
+                            log_console_out("Файл на сервере не прошёл проверку подлинности")
+                            return
+                        log_console_out("Проверка подлинноcти пройдена")
+                    else:
+                        log_console_out("Внимание, проверка подписи файла на сервере выключена")
                     log_console_out("Начато обновление")
-                    upgrade(ftp_info, remote, "..\\", send_timeout, max_attempts, attempt=1)
-            else:
+                    upgrade(ftp_info, remote_path, "..\\", send_timeout, max_attempts, attempt=1)
+                    return
                 log_console_out("Обновление не найдено")
-        except Exception as e:
-            log_console_out(f"Error: не удалось произвести обновление")
-            exception_handler(type(e), e, e.__traceback__)
-        clear_temp()
+            except Exception as e:
+                log_console_out(f"Error: не удалось произвести обновление")
+                exception_handler(type(e), e, e.__traceback__)
 
+        clear_temp()
+        sys.exit(0)
     else:
         try:
             updater_file = "updater.json" # определяем файл конфига, который нам так же нужно скопировать во временную директорию
@@ -350,7 +361,7 @@ def main(main_file, temp_dir):
             shutil.copy(updater_file, updater_temp)
             # Запускаем копию утилиты из временной директории
             subprocess.Popen(temp_exe)
-            sys.exit()
+            sys.exit(0)
         except Exception as e:
             log_console_out(f"Error: не удалось запустить обновление")
             exception_handler(type(e), e, e.__traceback__)
