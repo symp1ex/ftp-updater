@@ -5,22 +5,21 @@ config_data = {
     "ftp": {
         "ftp_server": "ftp.server.com",
         "userdata": {
-            "encryption": True,
-            "ftp_username": "ftpuser",
-            "ftp_password": "ftppassword"
+            "encryption": False,
+            "ftp_username": "username",
+            "ftp_password": "password"
         }
     },
     "update": {
         "enabled": True,
         "ftp_path": "updater",
-        "exe_name": "",
+        "exe_name": "name.exe",
         "attempt_count": 20,
         "attempt_timeout": 20,
         "signature_check_disable_key": ""
     },
     "send_data": {
         "enabled": False,
-        "ftp_path": "",
         "local_path": "..\\date",
         "attempt_count": 20,
         "attempt_timeout": 20
@@ -28,7 +27,8 @@ config_data = {
     "actions": {
         "at_startup": {
             "enabled": False,
-            "file_name": "stop.bat"
+            "file_name": "stop.bat",
+            "timeout": 15
         },
         "at_completion": {
             "enabled": False,
@@ -38,7 +38,7 @@ config_data = {
     "logs": {
         "level": "info",
         "path": "..\\logs",
-        "clear_days": 14
+        "clear_days": 7
     }
 }
 

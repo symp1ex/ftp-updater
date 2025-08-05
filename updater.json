@@ -16,8 +16,7 @@
         "signature_check_disable_key": "aTdW<<9XyeqNM*LS2<"
     },
     "send_data": {
-        "enabled": 0,
-        "ftp_path": "",
+        "enabled": false,
         "local_path": "..\\date",
         "attempt_count": 20,
         "attempt_timeout": 20
@@ -25,7 +24,8 @@
     "actions": {
         "at_startup": {
             "enabled": false,
-            "file_name": "stop.bat"
+            "file_name": "stop.bat",
+            "timeout": 15
         },
         "at_completion": {
             "enabled": false,
@@ -35,6 +35,6 @@
     "logs": {
         "level": "info",
         "path": "..\\logs",
-        "clear_days": 14
+        "clear_days": 7
     }
 }

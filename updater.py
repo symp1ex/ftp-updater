@@ -1,4 +1,3 @@
-# 0.4.8
 import ftplib
 from cryptography.fernet import Fernet
 import sys
@@ -14,6 +13,40 @@ import configs
 from logger import log_console_out, exception_handler
 import about
 
+def action_startup_run(config, main_file):
+    try: timeout = int(config["actions"]["at_startup"].get("timeout", 15))
+    except Exception: timeout = 15
+
+    file_name = config["actions"]["at_startup"].get("file_name", "stop.bat")
+    try:
+        file_path = os.path.join(os.path.dirname(main_file), "..\\", file_name)
+    except Exception as e:
+        log_console_out(f"Error: Не определить путь к '{file_name}'")
+        exception_handler(type(e), e, e.__traceback__)
+
+    try:
+        log_console_out(f"Будет запущен '{os.path.normpath(file_path)}', продолжение работы через ({timeout}) секунд")
+        subprocess.Popen(file_path)
+        time.sleep(timeout)
+    except Exception as e:
+        log_console_out(f"Error: Не удалось запустить '{file_path}'")
+        exception_handler(type(e), e, e.__traceback__)
+
+def action_complete_run(config, main_file):
+    file_name = config["actions"]["at_completion"].get("file_name", "start.bat")
+
+    try:
+        file_path = os.path.join(os.path.dirname(main_file), "..\\", file_name)
+    except Exception as e:
+        log_console_out(f"Error: Не определить путь к '{file_name}'")
+        exception_handler(type(e), e, e.__traceback__)
+
+    try:
+        log_console_out(f"Будет запущен '{os.path.normpath(file_path)}'")
+        subprocess.Popen(file_path)
+    except Exception as e:
+        log_console_out(f"Error: Не удалось запустить '{file_name}'")
+        exception_handler(type(e), e, e.__traceback__)
 
 def get_exe_metadata(file_path):
     try:
@@ -171,10 +204,6 @@ def upgrade(ftp_info, remote, local, send_timeout, max_attempts, attempt):
             ftp.login(user, passw)
             ftp.cwd(remote.replace('\\', '/'))
         except Exception as e:
-            # try:
-            #     ftp.quit()
-            # except:
-            #     pass
             if attempt < max_attempts:
                 try:
                     ftp.quit()
@@ -292,61 +321,86 @@ def clear_temp():
 
 def main(main_file, temp_dir):
     if main_file.startswith(temp_dir): # если udater запущен из временной директории, то запускаем процесс обновления
-        log_console_out(f"updater.exe запущен")
-        log_console_out(f"Версия исполянемого файла: {about.version}")
+        try:
+            log_console_out(f"updater.exe запущен")
+            log_console_out(f"Версия исполянемого файла: {about.version}")
+            log_console_out(f"Рабочая директория: '{os.getcwd()}'")
 
-        json_file = os.path.join(os.getcwd(), "updater.json")
-        config = configs.read_config_file(json_file, create=True)
-        ftp_server, ftp_username, ftp_password = ftp_connect(config)
-        ftp_info = (ftp_server, ftp_username, ftp_password)  # создаём кортеж
+            json_file = os.path.join(os.getcwd(), "updater.json")
+            config = configs.read_config_file(json_file, create=True)
+            ftp_server, ftp_username, ftp_password = ftp_connect(config)
+            ftp_info = (ftp_server, ftp_username, ftp_password)  # создаём кортеж
 
-        send_data_enbled = config["send_data"].get("enabled")
-        if send_data_enbled == True:
-            try:
-                date_path = config["send_data"].get("local_path", "..\\date")  # путь откуда берём данные для отправки
-                max_attempts = config["send_data"].get("attempt_count", 5)  # количество попыток отправки
-                send_timeout = config["send_data"].get("attempt_timeout", 10)  # тайм-аут для отправки
-                os.chdir(date_path)  # меняем рабочий каталог с корневого каталога для скрипта на указанный каталог здесь
-                upload(ftp_info, date_path, send_timeout, max_attempts, attempt=1)
-            except Exception as e:
-                log_console_out(f"Error: Отправка данных на сервер не удалась")
-                exception_handler(type(e), e, e.__traceback__)
+            try: action_startup = int(config["actions"]["at_startup"].get("enabled", 0))
+            except Exception: action_startup = 0
 
-        update_enbled = config["update"].get("enabled")
-        if update_enbled == True:
-            max_attempts = config["update"].get("attempt_count", 5)  # количество попыток отправки
-            send_timeout = config["update"].get("attempt_timeout", 10)  # тайм-аут для отправки
+            if action_startup == True:
+                action_startup_run(config, main_file)
 
-            try:
-                remote_path = config["update"].get("ftp_path")  # папка на фтп с которой качаются все файлы для обновления
+            send_data_enbled = config["send_data"].get("enabled")
+            if send_data_enbled == True:
+                try:
+                    date_path = config["send_data"].get("local_path", "..\\date")  # путь откуда берём данные для отправки
+                    max_attempts = config["send_data"].get("attempt_count", 5)  # количество попыток отправки
+                    send_timeout = config["send_data"].get("attempt_timeout", 10)  # тайм-аут для отправки
 
-                log_console_out("Проверяется наличие обновлений")
-                local = local_version(config, "..")
-                ftp, description, size_file = ftp_version(config, remote_path, send_timeout, max_attempts, attempt=1)
-                status_update = updater(ftp, local)
+                    os.chdir(date_path)  # меняем рабочий каталог с корневого каталога для скрипта на указанный каталог здесь
+                    log_console_out(f"Рабочая директория изменена на: '{os.path.abspath(date_path)}'")
+                    upload(ftp_info, date_path, send_timeout, max_attempts, attempt=1)
+                except Exception as e:
+                    log_console_out(f"Error: Отправка данных на сервер не удалась")
+                    exception_handler(type(e), e, e.__traceback__)
 
-                if status_update == True:
-                    log_console_out("Найдено обновление")
-                    check_signature_disabled_key = config["update"].get("signature_check_disable_key", 0)
+                os.chdir(os.path.dirname(os.path.dirname(main_file)))
+                log_console_out(f"Рабочая директория изменена на: '{os.path.dirname(os.path.dirname(main_file))}'")
 
-                    if not check_signature_disabled_key == "aTdW<<9XyeqNM*LS2<":
-                        signature = sign_metadata(ftp, size_file)
-                        if not signature == description:
-                            log_console_out("Файл на сервере не прошёл проверку подлинности")
-                            return
-                        log_console_out("Проверка подлинноcти пройдена")
+            update_enbled = config["update"].get("enabled")
+            if update_enbled == True:
+                max_attempts = config["update"].get("attempt_count", 5)  # количество попыток отправки
+                send_timeout = config["update"].get("attempt_timeout", 10)  # тайм-аут для отправки
+
+                try:
+                    remote_path = config["update"].get("ftp_path")  # папка на фтп с которой качаются все файлы для обновления
+
+                    log_console_out("Проверяется наличие обновлений")
+                    local = local_version(config, "..")
+                    ftp, description, size_file = ftp_version(config, remote_path, send_timeout, max_attempts, attempt=1)
+                    status_update = updater(ftp, local)
+
+                    if status_update == True:
+                        log_console_out("Найдено обновление")
+                        check_signature_disabled_key = config["update"].get("signature_check_disable_key", 0)
+
+                        if not check_signature_disabled_key == "aTdW<<9XyeqNM*LS2<":
+                            signature = sign_metadata(ftp, size_file)
+                            if not signature == description:
+                                log_console_out("Файл на сервере не прошёл проверку подлинности")
+                            else:
+                                log_console_out("Проверка подлинноcти пройдена")
+                                log_console_out("Начато обновление")
+                                upgrade(ftp_info, remote_path, "..\\", send_timeout, max_attempts, attempt=1)
+                        else:
+                            log_console_out("Внимание, проверка подписи файла на сервере выключена")
+                            log_console_out("Начато обновление")
+                            upgrade(ftp_info, remote_path, "..\\", send_timeout, max_attempts, attempt=1)
                     else:
-                        log_console_out("Внимание, проверка подписи файла на сервере выключена")
-                    log_console_out("Начато обновление")
-                    upgrade(ftp_info, remote_path, "..\\", send_timeout, max_attempts, attempt=1)
-                    return
-                log_console_out("Обновление не найдено")
-            except Exception as e:
-                log_console_out(f"Error: не удалось произвести обновление")
-                exception_handler(type(e), e, e.__traceback__)
+                        log_console_out("Обновление не найдено")
+                except Exception as e:
+                    log_console_out(f"Error: не удалось произвести обновление")
+                    exception_handler(type(e), e, e.__traceback__)
 
-        clear_temp()
-        sys.exit(0)
+            try: action_completion = int(config["actions"]["at_completion"].get("enabled", 0))
+            except Exception: action_completion = 0
+
+            if action_completion == True:
+                action_complete_run(config, main_file)
+
+            clear_temp()
+            os._exit(0)
+        except Exception as e:
+            log_console_out(f"Error: произошло нештатное прерывание основного потока")
+            exception_handler(type(e), e, e.__traceback__)
+
     else:
         try:
             updater_file = "updater.json" # определяем файл конфига, который нам так же нужно скопировать во временную директорию
@@ -361,7 +415,7 @@ def main(main_file, temp_dir):
             shutil.copy(updater_file, updater_temp)
             # Запускаем копию утилиты из временной директории
             subprocess.Popen(temp_exe)
-            sys.exit(0)
+            os._exit(0)
         except Exception as e:
             log_console_out(f"Error: не удалось запустить обновление")
             exception_handler(type(e), e, e.__traceback__)
