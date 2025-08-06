@@ -21,7 +21,7 @@ def action_startup_run(config, main_file):
     try:
         file_path = os.path.join(os.path.dirname(main_file), "..\\", file_name)
     except Exception as e:
-        log_console_out(f"Error: Не определить путь к '{file_name}'")
+        log_console_out(f"Error: Не удалось определить путь к '{file_name}'")
         exception_handler(type(e), e, e.__traceback__)
 
     try:
@@ -38,7 +38,7 @@ def action_complete_run(config, main_file):
     try:
         file_path = os.path.join(os.path.dirname(main_file), "..\\", file_name)
     except Exception as e:
-        log_console_out(f"Error: Не определить путь к '{file_name}'")
+        log_console_out(f"Error: Не удалось определить путь к '{file_name}'")
         exception_handler(type(e), e, e.__traceback__)
 
     try:
@@ -331,12 +331,6 @@ def main(main_file, temp_dir):
             ftp_server, ftp_username, ftp_password = ftp_connect(config)
             ftp_info = (ftp_server, ftp_username, ftp_password)  # создаём кортеж
 
-            try: action_startup = int(config["actions"]["at_startup"].get("enabled", 0))
-            except Exception: action_startup = 0
-
-            if action_startup == True:
-                action_startup_run(config, main_file)
-
             send_data_enbled = config["send_data"].get("enabled")
             if send_data_enbled == True:
                 try:
@@ -377,24 +371,43 @@ def main(main_file, temp_dir):
                                 log_console_out("Файл на сервере не прошёл проверку подлинности")
                             else:
                                 log_console_out("Проверка подлинноcти пройдена")
+
+                                try: action_startup = int(config["actions"]["at_startup"].get("enabled", 0))
+                                except Exception: action_startup = 0
+
+                                if action_startup == True:
+                                    action_startup_run(config, main_file)
+
                                 log_console_out("Начато обновление")
                                 upgrade(ftp_info, remote_path, "..\\", send_timeout, max_attempts, attempt=1)
+
+                                try: action_completion = int(config["actions"]["at_completion"].get("enabled", 0))
+                                except Exception: action_completion = 0
+
+                                if action_completion == True:
+                                    action_complete_run(config, main_file)
                         else:
                             log_console_out("Внимание, проверка подписи файла на сервере выключена")
+
+                            try: action_startup = int(config["actions"]["at_startup"].get("enabled", 0))
+                            except Exception: action_startup = 0
+
+                            if action_startup == True:
+                                action_startup_run(config, main_file)
+
                             log_console_out("Начато обновление")
                             upgrade(ftp_info, remote_path, "..\\", send_timeout, max_attempts, attempt=1)
+
+                            try: action_completion = int(config["actions"]["at_completion"].get("enabled", 0))
+                            except Exception: action_completion = 0
+
+                            if action_completion == True:
+                                action_complete_run(config, main_file)
                     else:
                         log_console_out("Обновление не найдено")
                 except Exception as e:
                     log_console_out(f"Error: не удалось произвести обновление")
                     exception_handler(type(e), e, e.__traceback__)
-
-            try: action_completion = int(config["actions"]["at_completion"].get("enabled", 0))
-            except Exception: action_completion = 0
-
-            if action_completion == True:
-                action_complete_run(config, main_file)
-
             clear_temp()
             os._exit(0)
         except Exception as e:
@@ -404,6 +417,7 @@ def main(main_file, temp_dir):
     else:
         try:
             updater_file = "updater.json" # определяем файл конфига, который нам так же нужно скопировать во временную директорию
+            configs.read_config_file(updater_file, create=True)
             if not os.path.exists(temp_dir):
                 os.makedirs(temp_dir)
             # Копируем исполняемый файл в указанную директорию
