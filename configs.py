@@ -38,18 +38,19 @@ config_data = {
     "logs": {
         "level": "info",
         "path": "..\\logs",
-        "clear_days": 7
+        "clear_days": 14
     }
 }
 
 def write_json_file(file_name, config):
+    import logger
     try:
         with open(file_name, "w", encoding="utf-8") as file:
             json.dump(config, file, ensure_ascii=False, indent=4)
-        # logger.logger_service.info(f"Данные записаны в '{file_name}'")
-        # logger.logger_service.debug(config)
+        logger.updater.info(f"Данные записаны в '{file_name}'")
+        logger.updater.debug(config)
     except Exception:
-        # logger.logger_service.error(f"Не удалось записать данные в '{file_path}'.")
+        logger.updater.error(f"Не удалось записать данные в '{file_name}'.")
         pass
 
 def read_config_file(json_file, create=False):
@@ -58,10 +59,8 @@ def read_config_file(json_file, create=False):
             config = json.load(file)
             return config
     except FileNotFoundError:
-        # logger.logger_service.warn(f"Файл конфига '{json_file}' отсутствует.")
         if create == True:
             write_json_file(json_file, config_data)
     except json.JSONDecodeError:
-        # logger.logger_service.warn(f"Файл конфига '{json_file}' имеет некорректный формат данных")
         if create == True:
             write_json_file(json_file, config_data)
