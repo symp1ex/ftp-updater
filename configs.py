@@ -51,7 +51,7 @@ def write_json_file(file_name, config):
         logger.updater.debug(config)
     except Exception:
         logger.updater.error(f"Не удалось записать данные в '{file_name}'.")
-        pass
+        os._exit(1)
 
 def read_config_file(json_file, create=False):
     try:
@@ -61,6 +61,8 @@ def read_config_file(json_file, create=False):
     except FileNotFoundError:
         if create == True:
             write_json_file(json_file, config_data)
+            os._exit(1)
     except json.JSONDecodeError:
         if create == True:
             write_json_file(json_file, config_data)
+            os._exit(1)

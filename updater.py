@@ -29,6 +29,7 @@ def action_startup_run(config, main_file):
         time.sleep(timeout)
     except Exception:
         logger.updater.error(f"Не удалось запустить '{file_path}'", exc_info=True)
+        os._exit(1)
 
 def action_complete_run(config, main_file):
     file_name = config["actions"]["at_completion"].get("file_name", "start.bat")
@@ -43,6 +44,7 @@ def action_complete_run(config, main_file):
         subprocess.Popen(file_path)
     except Exception:
         logger.updater.error(f"Не удалось запустить '{file_name}'", exc_info=True)
+        os._exit(1)
 
 def get_exe_metadata(file_path):
     try:
@@ -53,7 +55,7 @@ def get_exe_metadata(file_path):
         return '.'.join(map(str, version))
     except Exception:
         logger.updater.error(f"Не удалось проверить версию исходного файла", exc_info=True)
-        return None
+        os._exit(1)
 
 def get_file_description(file_path): # получение конкретного поля из метаданных исполняемого файла
     try:
@@ -73,7 +75,7 @@ def get_size_file(file_path):
         logger.updater.debug(f"Размер загруженного файла '{file_path}':\n{size}")
         return size
     except Exception:
-        pass
+        os._exit(1)
 
 def download_temp_file(ftp_server, ftp_username, ftp_password, ftp_path, config, send_timeout, max_attempts, attempt):
     ftp = None
@@ -114,7 +116,7 @@ def download_temp_file(ftp_server, ftp_username, ftp_password, ftp_path, config,
             except:
                 pass
             logger.updater.error(f"Не удалось загрузить временный файл для проверки обновления", exc_info=True)
-            return None
+            os._exit(1)
 
 # получение подписи на основе .exe файла на фтп-сервере
 def sign_metadata(size, version):
@@ -125,6 +127,7 @@ def sign_metadata(size, version):
         return signature
     except Exception:
         logger.updater.error(f"Не удалось получить подпись", exc_info=True)
+        os._exit(1)
 
 # дешифровка параметров подключения из updater.json
 def decrypt_data(encrypted_data):
@@ -135,6 +138,7 @@ def decrypt_data(encrypted_data):
         return decrypted_data
     except Exception:
         logger.updater.error(f"Не пройдена аутентификация на сервере", exc_info=True)
+        os._exit(1)
 
 # Параметры FTP сервера
 def ftp_connect(config):
@@ -153,6 +157,7 @@ def ftp_connect(config):
         return ftp_server, ftp_username, ftp_password
     except Exception:
         logger.updater.error("Не удалось определить тип пользовтельских данных для подключения к ftp", exc_info=True)
+        os._exit(1)
 
 def local_version(config, parent_directory):
     try:
@@ -164,7 +169,8 @@ def local_version(config, parent_directory):
             logger.updater.info(f"Версия исходного файла: {local_version}")
             return local_version
     except Exception:
-        logger.updater.error(f"Не удалось проверить версию исходного файла")
+        logger.updater.error(f"Не удалось проверить версию исходного файла", exc_info=True)
+        os._exit(1)
 
 def ftp_version(config, remote_path, send_timeout, max_attempts, attempt):
     try:
@@ -182,6 +188,7 @@ def ftp_version(config, remote_path, send_timeout, max_attempts, attempt):
                 return ftp_version, file_description, size_file
     except Exception:
         logger.updater.error(f"Не удалось проверить версию файла на ftp-сервере", exc_info=True)
+        os._exit(1)
 
 def updater(ftp, local):
     try:
@@ -198,6 +205,8 @@ def updater(ftp, local):
         return False  # Версии идентичны
     except Exception:
         logger.updater.error(f"Не удалось преобразовать информацию о версии файла '{ftp}' в подходящий формат для сравнения с '{local}'", exc_info=True)
+        os._exit(1)
+        
 def upgrade(ftp_info, remote, local, send_timeout, max_attempts, attempt):
     ftp = None
     try:
@@ -258,7 +267,7 @@ def upgrade(ftp_info, remote, local, send_timeout, max_attempts, attempt):
             except:
                 pass
             logger.updater.error(f"Error: Не удалось произвести обновление после ({max_attempts}) попыток", exc_info=True)
-            return None
+            os._exit(1)
 
 def upload(ftp_info, date_path, send_timeout, max_attempts, attempt):
     ftp = None
@@ -303,7 +312,7 @@ def upload(ftp_info, date_path, send_timeout, max_attempts, attempt):
             except:
                 pass
             logger.updater.error(f"Отправка данных на сервер не удалась после ({max_attempts}) попыток", exc_info=True)
-            return False
+            os._exit(1)
 
 def clear_temp():
     try:
@@ -314,15 +323,43 @@ def clear_temp():
         working_directory = os.path.dirname(os.path.dirname(temp_dir))
         # Выполняем команду в отдельном процессе
         subprocess.Popen(command, shell=True, cwd=working_directory)
+        logger.updater.debug("Отправлена команда на очистку временной директории")
     except Exception:
         logger.updater.error(f'Не удалось очистить временную директорию', exc_info=True)
+        os._exit(1)
+
+def update_run(config, ftp_info, remote_path, send_timeout, max_attempts):
+    try:
+        action_startup = int(config["actions"]["at_startup"].get("enabled", 0))
+    except Exception:
+        action_startup = 0
+
+    if action_startup == True:
+        action_startup_run(config, main_file)
+
+    try:
+        logger.updater.info("Начато обновление")
+        upgrade(ftp_info, remote_path, "..\\", send_timeout, max_attempts, attempt=1)
+
+        try:
+            action_completion = int(config["actions"]["at_completion"].get("enabled", 0))
+        except Exception:
+            action_completion = 0
+
+        if action_completion == True:
+            action_complete_run(config, main_file)
+    except Exception:
+        logger.updater.error(f"Не удалось запустить процесс обновления", exc_info=True)
+        action_startup_run(config, main_file)
+        action_complete_run(config, main_file)
+        os._exit(1)
 
 def main(main_file, temp_dir):
     if main_file.startswith(temp_dir): # если udater запущен из временной директории, то запускаем процесс обновления
         try:
             logger.updater.info(f"updater.exe запущен")
             logger.updater.info(f"Версия исполянемого файла: {about.version}")
-            logger.updater.info(f"Рабочая директория: '{about.work_directory}'")
+            logger.updater.info(f"Рабочая директория: '{work_directory}'")
 
             json_file = os.path.join(os.getcwd(), "updater.json")
             config = configs.read_config_file(json_file, create=True)
@@ -343,8 +380,8 @@ def main(main_file, temp_dir):
                 except Exception:
                     logger.updater.error(f"Отправка данных на сервер не удалась", exc_info=True)
 
-                os.chdir(about.work_directory)
-                logger.updater.debug(f"Рабочая директория изменена на: '{about.work_directory}'")
+                os.chdir(work_directory)
+                logger.updater.debug(f"Рабочая директория изменена на: '{work_directory}'")
 
             update_enbled = config["update"].get("enabled")
             if update_enbled == True:
@@ -369,38 +406,10 @@ def main(main_file, temp_dir):
                                 logger.updater.warn("Файл на сервере не прошёл проверку подлинности")
                             else:
                                 logger.updater.info("Проверка подлинноcти пройдена")
-
-                                try: action_startup = int(config["actions"]["at_startup"].get("enabled", 0))
-                                except Exception: action_startup = 0
-
-                                if action_startup == True:
-                                    action_startup_run(config, main_file)
-
-                                logger.updater.info("Начато обновление")
-                                upgrade(ftp_info, remote_path, "..\\", send_timeout, max_attempts, attempt=1)
-
-                                try: action_completion = int(config["actions"]["at_completion"].get("enabled", 0))
-                                except Exception: action_completion = 0
-
-                                if action_completion == True:
-                                    action_complete_run(config, main_file)
+                                update_run(config, ftp_info, remote_path, send_timeout, max_attempts)
                         else:
                             logger.updater.warn("Внимание, проверка подписи файла на сервере выключена")
-
-                            try: action_startup = int(config["actions"]["at_startup"].get("enabled", 0))
-                            except Exception: action_startup = 0
-
-                            if action_startup == True:
-                                action_startup_run(config, main_file)
-
-                            logger.updater.info("Начато обновление")
-                            upgrade(ftp_info, remote_path, "..\\", send_timeout, max_attempts, attempt=1)
-
-                            try: action_completion = int(config["actions"]["at_completion"].get("enabled", 0))
-                            except Exception: action_completion = 0
-
-                            if action_completion == True:
-                                action_complete_run(config, main_file)
+                            update_run(config, ftp_info, remote_path, send_timeout, max_attempts)
                     else:
                         logger.updater.info("Обновление не найдено")
                 except Exception:
@@ -409,6 +418,7 @@ def main(main_file, temp_dir):
             os._exit(0)
         except Exception:
             logger.updater.error(f"Произошло нештатное прерывание основного потока", exc_info=True)
+            os._exit(1)
 
     else:
         try:
@@ -428,8 +438,10 @@ def main(main_file, temp_dir):
             os._exit(0)
         except Exception:
             logger.updater.error(f"Не удалось запустить обновление", exc_info=True)
+            os._exit(1)
 
 if __name__ == "__main__":
     main_file = os.path.abspath(sys.argv[0]) # получаем текущую директорию
+    work_directory = os.getcwd()
     temp_dir = os.path.abspath("_temp")  #  получение пути к временной директории
     main(main_file, temp_dir)
