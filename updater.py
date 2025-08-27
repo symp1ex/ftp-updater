@@ -12,12 +12,64 @@ import operator, subprocess, shutil
 import configs
 import logger
 import about
+import wmi
+import pythoncom
+
+def check_procces(file_name):
+    try:
+        # Инициализируем COM для текущего потока
+        pythoncom.CoInitialize()
+
+        try:
+            c = wmi.WMI()
+            # Ищем процесс по имени
+            for process in c.Win32_Process():
+                if process.Name.lower() == file_name.lower():
+                    logger.updater.debug(f"Процесс '{file_name}' активен")
+                    return True
+
+            logger.updater.debug(f"Процесс '{file_name}' неактивен")
+            return False
+
+        finally:
+            # Освобождаем COM
+            pythoncom.CoUninitialize()
+
+    except Exception:
+        logger.updater.error(f"Не удалось отследить состояние процесса '{file_name}'", exc_info=True)
+        return False
+
+def check_procces_in_cycle(config, exe_name):
+    try: timeout = int(config["actions"]["at_startup"].get("timeout", 15))
+    except Exception: timeout = 15
+
+    count_attempt = int(timeout / 5 + 1)
+
+    try:
+        logger.updater.info(f"Проверяем актвивность процесса '{exe_name}'")
+        for attempt in range(count_attempt):
+            process_found = check_procces(exe_name)
+
+            if process_found:
+                logger.updater.debug(f"Cледущая проверка через (5) секунд.")
+                time.sleep(5)
+                continue
+            else:
+                logger.updater.info(f"Процесс '{exe_name}' завершил свою работу или не был запущен")
+                return True
+        logger.updater.warn(
+            f"Процесс '{exe_name}' остаётся активным в течении ({timeout}) секунд, процесс обновления будет остановлен")
+        return False
+    except Exception:
+        logger.updater.error(f"Не удалось отследить состояние процесса '{exe_name}'", exc_info=True)
+        os._exit(1)
 
 def action_startup_run(config, main_file):
     try: timeout = int(config["actions"]["at_startup"].get("timeout", 15))
     except Exception: timeout = 15
 
     file_name = config["actions"]["at_startup"].get("file_name", "stop.bat")
+
     try:
         file_path = os.path.join(os.path.dirname(main_file), "..\\", file_name)
     except Exception:
@@ -26,10 +78,8 @@ def action_startup_run(config, main_file):
     try:
         logger.updater.info(f"Будет запущен '{os.path.normpath(file_path)}', продолжение работы через ({timeout}) секунд")
         subprocess.Popen(file_path)
-        time.sleep(timeout)
     except Exception:
         logger.updater.error(f"Не удалось запустить '{file_path}'", exc_info=True)
-        os._exit(1)
 
 def action_complete_run(config, main_file):
     file_name = config["actions"]["at_completion"].get("file_name", "start.bat")
@@ -44,7 +94,6 @@ def action_complete_run(config, main_file):
         subprocess.Popen(file_path)
     except Exception:
         logger.updater.error(f"Не удалось запустить '{file_name}'", exc_info=True)
-        os._exit(1)
 
 def get_exe_metadata(file_path):
     try:
@@ -334,25 +383,35 @@ def update_run(config, ftp_info, remote_path, send_timeout, max_attempts):
     except Exception:
         action_startup = 0
 
-    if action_startup == True:
-        action_startup_run(config, main_file)
+    try:
+        action_completion = int(config["actions"]["at_completion"].get("enabled", 0))
+    except Exception:
+        action_completion = 0
+
+    exe_name = config["update"].get("exe_name")
 
     try:
-        logger.updater.info("Начато обновление")
-        upgrade(ftp_info, remote_path, "..\\", send_timeout, max_attempts, attempt=1)
+        if action_startup == True:
+            action_startup_run(config, main_file)
+            wait_stop_app = check_procces_in_cycle(config, exe_name)
 
-        try:
-            action_completion = int(config["actions"]["at_completion"].get("enabled", 0))
-        except Exception:
-            action_completion = 0
+            if wait_stop_app == True:
+                try:
+                    logger.updater.info("Начато обновление")
+                    upgrade(ftp_info, remote_path, "..\\", send_timeout, max_attempts, attempt=1)
 
-        if action_completion == True:
-            action_complete_run(config, main_file)
+                    if action_completion == True:
+                        action_complete_run(config, main_file)
+                except Exception:
+                    logger.updater.error(f"Не удалось запустить процесс обновления", exc_info=True)
+                    if action_completion == True:
+                        action_complete_run(config, main_file)
+                    os._exit(1)
+        else:
+            if action_completion == True:
+                action_complete_run(config, main_file)
     except Exception:
-        logger.updater.error(f"Не удалось запустить процесс обновления", exc_info=True)
-        action_startup_run(config, main_file)
-        action_complete_run(config, main_file)
-        os._exit(1)
+        logger.updater.error(f"Запуск скриптов управления завершился ошибкой", exc_info=True)
 
 def main(main_file, temp_dir):
     if main_file.startswith(temp_dir): # если udater запущен из временной директории, то запускаем процесс обновления
@@ -419,7 +478,6 @@ def main(main_file, temp_dir):
         except Exception:
             logger.updater.error(f"Произошло нештатное прерывание основного потока", exc_info=True)
             os._exit(1)
-
     else:
         try:
             updater_file = "updater.json" # определяем файл конфига, который нам так же нужно скопировать во временную директорию
