@@ -13,7 +13,7 @@ config_data = {
     "update": {
         "enabled": True,
         "ftp_path": "updater",
-        "exe_name": "name.exe",
+        "exe_name": "app.exe",
         "attempt_count": 20,
         "attempt_timeout": 20,
         "signature_check_disable_key": ""
@@ -47,10 +47,11 @@ def write_json_file(file_name, config):
     try:
         with open(file_name, "w", encoding="utf-8") as file:
             json.dump(config, file, ensure_ascii=False, indent=4)
+        logger.updater.warning(f"Файл '{file_name}' не найден. Будет создан новый файл конфигурации, перезапустите приложение")
         logger.updater.info(f"Данные записаны в '{file_name}'")
         logger.updater.debug(config)
     except Exception:
-        logger.updater.error(f"Не удалось записать данные в '{file_name}'.")
+        logger.updater.error(f"Не удалось записать данные в '{file_name}'.", exc_info=True)
         os._exit(1)
 
 def read_config_file(json_file, create=False):
