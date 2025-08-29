@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import win32api
 import stat
+import zipfile
 
 class ResourceManagement:
     signature_check_disable_key = "aTdW<<9XyeqNM*LS2<"
@@ -23,6 +24,12 @@ class ResourceManagement:
 
     def __init__(self):
         self.config = configs.read_config_file(self.config_file, create=True)
+        self.exe_name = self.config["update"].get("exe_name")
+        self.old_file = os.path.join("..", self.exe_name)
+        self.temp_old_file = os.path.join("..", f"{self.exe_name}._tmp")
+        self.zip_name = None
+        self.zip_path = None
+        self.zip_files_list = None
         self.manifest = None
 
     def read_manifest(self):
@@ -54,7 +61,6 @@ class ResourceManagement:
         return result
 
     def get_size_file(self, file_path):
-        logger.updater.debug(f"Будет проверен размер файла: '{os.path.abspath(file_path)}'")
         try:
             file_stats = os.stat(file_path)
             size = file_stats[stat.ST_SIZE]
@@ -64,6 +70,52 @@ class ResourceManagement:
             logger.updater.error(f"Не удалось получить размер файла: '{os.path.abspath(file_path)}'", exc_info=True)
             self.clear_temp()
             os._exit(1)
+
+    def get_name_zip(self):
+        base_name = self.exe_name.split('.')[0]  # получаем 'file'
+        key = f"{base_name}.zip"  # создаем новую строку 'file.zip'
+
+        try:
+            # Прямая проверка ключа
+            if key in self.manifest:
+                self.zip_name = key
+                logger.updater.debug(f"Ключ '{key}' найден в '{self.manifest_file}'")
+                return True
+            logger.updater.debug(f"Ключ '{key}' не найден в '{self.manifest_file}'")
+            return False
+        except Exception:
+            logger.updater.error(f"Ошибка при поиске ключа '{key}' в {self.manifest_file}", exc_info=True)
+            return False
+
+    def restore_file(self):
+        try:
+            time.sleep(1)
+            os.remove(self.old_file)
+            time.sleep(1)
+            os.rename(self.temp_old_file, self.old_file)
+            time.sleep(1)
+            logger.updater.info(f"Резервная копия файла '{os.path.abspath(self.old_file)}' успешно восстановлена")
+        except Exception:
+            logger.updater.critical(f"Не удалось восстановить резервную капию файла '{os.path.abspath(self.old_file)}'",
+                                    exc_info=True)
+
+    def unzip_and_get_files(self, extract_path):
+        self.zip_files_list = []
+        try:
+            # Открываем zip архив
+            with zipfile.ZipFile(self.zip_path, 'r') as zip_ref:
+                # Получаем список всех файлов в архиве
+                for file_info in zip_ref.infolist():
+                    if not file_info.filename.endswith('/'):  # Пропускаем директории
+                        self.zip_files_list.append(file_info.filename)
+                # Распаковываем архив
+                logger.updater.debug(f"Получен список файлов в архиве: '{self.zip_files_list}'")
+                zip_ref.extractall(extract_path)
+                logger.updater.info(f"Zip-архив '{self.zip_path}' успешно распакован в '{os.path.abspath(extract_path)}'")
+        except Exception:
+            logger.updater.error(f"Ошибка при распаковке архива '{self.zip_path}'", exc_info=True)
+            self.restore_file()
+            raise
 
     def clear_temp(self):
         try:
@@ -170,7 +222,8 @@ class ProcessManagement(ResourceManagement):
                     logger.updater.info(f"Процесс '{exe_name}' завершил свою работу или не был запущен")
                     return True
             logger.updater.warn(
-                f"Процесс '{exe_name}' остаётся активным в течении ({self.action_timeout}) секунд, процесс обновления будет прерван")
+                f"Процесс '{exe_name}' остаётся активным в течении ({self.action_timeout}) секунд, "
+                f"процесс обновления будет прерван")
             return False
         except Exception:
             logger.updater.error(f"Не удалось отследить состояние процесса '{exe_name}'", exc_info=True)

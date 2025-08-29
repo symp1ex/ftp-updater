@@ -10,6 +10,9 @@ class FtpConnection(sys_manager.ResourceManagement):
         self.ftp_server = self.config["ftp"].get("ftp_server")
         self.ftp_username = None
         self.ftp_password = None
+        self.ftp_version = None
+        self.ftp_signature = None
+        self.zip_signature = None
 
         try: self.encryption_enabled = int(self.config.get("ftp", {}).get("userdata", {}).get("encryption", 0))
         except Exception: self.encryption_enabled = 0
@@ -31,18 +34,27 @@ class FtpConnection(sys_manager.ResourceManagement):
             self.clear_temp()
             os._exit(1)
 
-    def check_ftp_version(self, file_name, exe_name, remote_path, timeout_update, max_attempts, attempt):
+    def check_ftp_version(self, file_name, remote_path, timeout_update, max_attempts, attempt):
         try:
             ftp_file_path = self.download_file(file_name, remote_path, timeout_update, max_attempts, attempt)
             if ftp_file_path:
                 self.read_manifest()
+                self.get_name_zip()
                 # Получение версии файла на фтп
-                ftp_version = self.manifest[exe_name].get("version")
-                ftp_signature = self.manifest[exe_name].get("signature")
-                if ftp_version:
-                    logger.updater.info(f"Версия файла на сервере: {ftp_version}")
-                    logger.updater.debug(f"Подпись файла на сервере: '{ftp_signature}'")
-                    return ftp_version, ftp_signature
+                self.ftp_version = self.manifest[self.exe_name].get("version")
+                if self.ftp_version:
+                    logger.updater.info(f"Версия файла на сервере: {self.ftp_version}")
+
+                self.ftp_signature = self.manifest[self.exe_name].get("signature")
+                if self.ftp_signature:
+                    logger.updater.debug(f"Подпись файла на сервере: '{self.ftp_signature}'")
+
+                if self.zip_name:
+                    self.zip_signature = self.manifest[self.zip_name].get("signature")
+                    if self.zip_signature:
+                        logger.updater.debug(f"Подпись zip-архива на сервере: '{self.zip_signature}'")
+                        return
+                    logger.updater.debug(f"Подпись zip-архива на сервере: '{None}'")
         except Exception:
             logger.updater.error(f"Не удалось проверить версию файла на FTP-сервере", exc_info=True)
             self.clear_temp()
@@ -68,7 +80,7 @@ class FtpConnection(sys_manager.ResourceManagement):
             with open(local_file_path, 'wb') as local_file:
                 ftp.retrbinary('RETR ' + remote_file_path, local_file.write)
 
-            logger.updater.debug(f"Файл '{remote_file_path}' успешно загружен в директорию '{os.path.dirname(local_file_path)}'")
+            logger.updater.info(f"Файл '{remote_file_path}' успешно загружен в директорию '{os.path.dirname(local_file_path)}'")
             # Закрытие соединения с FTP сервером
             ftp.quit()
 
