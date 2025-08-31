@@ -4,15 +4,33 @@ import os
 import ftplib
 import time
 
+class FtpContextManager:
+    def __init__(self, server, username, password):
+        self.server = server
+        self.username = username
+        self.password = password
+        self.ftp = None
+
+    def __enter__(self):
+        self.ftp = ftplib.FTP(self.server)
+        self.ftp.login(self.username, self.password)
+        return self.ftp
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.ftp:
+            try: self.ftp.quit()
+            except: pass
+
 class FtpConnection(sys_manager.ResourceManagement):
     def __init__(self):
         super().__init__()
-        self.ftp_server = self.config["ftp"].get("ftp_server")
+        self.ftp_server = self.config.get("ftp", {}).get("ftp_server", "")
         self.ftp_username = None
         self.ftp_password = None
         self.ftp_version = None
         self.ftp_signature = None
         self.zip_signature = None
+        self.ftp_context = None
 
         try: self.encryption_enabled = int(self.config.get("ftp", {}).get("userdata", {}).get("encryption", 0))
         except Exception: self.encryption_enabled = 0
@@ -28,6 +46,12 @@ class FtpConnection(sys_manager.ResourceManagement):
                 self.ftp_username = self.decrypt_data(self.config["ftp"]["userdata"].get("ftp_username"))
                 self.ftp_password = self.decrypt_data(self.config["ftp"]["userdata"].get("ftp_password"))
                 logger.updater.debug("Пользовтельские данные для подключения к FTP-серверу успешно расшифрованы")
+
+                self.ftp_context = lambda: FtpContextManager(
+                    self.ftp_server,
+                    self.ftp_username,
+                    self.ftp_password
+                )
         except Exception:
             logger.updater.error("Не удалось определить тип пользовательских данных для подключения к FTP-серверу",
                                  exc_info=True)
@@ -61,14 +85,9 @@ class FtpConnection(sys_manager.ResourceManagement):
             os._exit(1)
 
     def download_file(self, file_name, remote_path, timeout_update, max_attempts, attempt):
-        ftp = None
         remote_file_path = f"{remote_path}/{os.path.basename(file_name)}"  # путь до файла на фтп с которым сравнивается версия и подпись
         try:
             temp_resources_path = os.path.dirname(self.manifest_file)
-
-            # Установка соединения с FTP сервером
-            ftp = ftplib.FTP(self.ftp_server)
-            ftp.login(self.ftp_username, self.ftp_password)
 
             if not os.path.exists(temp_resources_path):
                 os.makedirs(temp_resources_path)
@@ -76,76 +95,55 @@ class FtpConnection(sys_manager.ResourceManagement):
 
             # Создание временного файла для загрузки
             local_file_path = os.path.join(temp_resources_path, os.path.basename(remote_file_path))
+
             # Загрузка файла с FTP сервера
-            with open(local_file_path, 'wb') as local_file:
-                ftp.retrbinary('RETR ' + remote_file_path, local_file.write)
+            with self.ftp_context() as ftp:
+                with open(local_file_path, 'wb') as local_file:
+                    ftp.retrbinary('RETR ' + remote_file_path, local_file.write)
 
             logger.updater.info(f"Файл '{remote_file_path}' успешно загружен в директорию '{os.path.dirname(local_file_path)}'")
-            # Закрытие соединения с FTP сервером
-            ftp.quit()
-
             return local_file_path
         except Exception:
             if attempt < max_attempts:
-                try:
-                    ftp.quit()
-                except:
-                    pass
                 logger.updater.warn(
                     f"Попытка ({attempt}) загрузить файл '{remote_file_path}' не удалась. Повторная попытка через ({timeout_update}) секунд...")
                 attempt += 1
                 time.sleep(timeout_update)
                 return self.download_file(file_name, remote_path, timeout_update, max_attempts, attempt)
             else:
-                try:
-                    ftp.quit()
-                except:
-                    pass
                 logger.updater.error(f"Не удалось загрузить файл '{remote_file_path}' после ({max_attempts}) попыток", exc_info=True)
                 self.clear_temp()
                 os._exit(1)
 
     def upload(self, date_path, send_timeout, max_attempts, attempt):
-        ftp = None
         try:
-            ftp = ftplib.FTP(self.ftp_server)
-            ftp.login(self.ftp_username, self.ftp_password)
-
-            for name in os.listdir(date_path):
-                localpath = os.path.join(date_path, name)
-                if os.path.isfile(localpath):
-                    ftp.storbinary('STOR ' + name, open(localpath, 'rb'))
-                elif os.path.isdir(localpath):
-                    try:
-                        ftp.mkd(name)
-                    except ftplib.error_perm as e:
-                        if not e.args[0].startswith('550'):
-                            raise
-                    ftp.cwd(name)
-                    for file in os.listdir(localpath):
-                        file_path = os.path.join(localpath, file)
-                        if os.path.isfile(file_path):
-                            remote_file_path = os.path.join(name, file).replace("\\", "/")
-                            ftp.storbinary('STOR ' + file, open(file_path, 'rb'))
-                    ftp.cwd("..")
-            ftp.quit()
+            with self.ftp_context() as ftp:
+                for name in os.listdir(date_path):
+                    localpath = os.path.join(date_path, name)
+                    if os.path.isfile(localpath):
+                        ftp.storbinary('STOR ' + name, open(localpath, 'rb'))
+                    elif os.path.isdir(localpath):
+                        try:
+                            ftp.mkd(name)
+                        except ftplib.error_perm as e:
+                            if not e.args[0].startswith('550'):
+                                raise
+                        ftp.cwd(name)
+                        for file in os.listdir(localpath):
+                            file_path = os.path.join(localpath, file)
+                            if os.path.isfile(file_path):
+                                remote_file_path = os.path.join(name, file).replace("\\", "/")
+                                ftp.storbinary('STOR ' + file, open(file_path, 'rb'))
+                        ftp.cwd("..")
             logger.updater.info("Передача данных на сервер завершена")
             return True
         except Exception:
             if attempt < max_attempts:
-                try:
-                    ftp.quit()
-                except:
-                    pass
                 logger.updater.warn(
                     f"Попытка ({attempt}) отправки данных не удалась. Повторная попытка через ({send_timeout}) секунд...")
                 attempt += 1
                 time.sleep(send_timeout)
                 return self.upload(date_path, send_timeout, max_attempts, attempt)
             else:
-                try:
-                    ftp.quit()
-                except:
-                    pass
                 logger.updater.error(f"Отправка данных на сервер не удалась после ({max_attempts}) попыток",
                                      exc_info=True)

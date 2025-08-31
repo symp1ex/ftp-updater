@@ -24,7 +24,7 @@ class ResourceManagement:
 
     def __init__(self):
         self.config = configs.read_config_file(self.config_file, create=True)
-        self.exe_name = self.config["update"].get("exe_name")
+        self.exe_name = self.config.get("update", {}).get("exe_name")
         self.old_file = os.path.join("..", self.exe_name)
         self.temp_old_file = os.path.join("..", f"{self.exe_name}._tmp")
         self.zip_name = None
@@ -122,7 +122,7 @@ class ResourceManagement:
             main_file = os.path.abspath(sys.argv[0])
             temp_dir = os.path.dirname(main_file)
             # Команда для удаления файла
-            command = f"timeout /t 60 > nul && rd /q/s \"{temp_dir}\""
+            command = f"timeout /t 45 > nul && rd /q/s \"{temp_dir}\""
             working_directory = os.path.dirname(os.path.dirname(temp_dir))
             # Выполняем команду в отдельном процессе
             subprocess.Popen(command, shell=True, cwd=working_directory)
@@ -149,6 +149,7 @@ class ResourceManagement:
             return decrypted_data
         except Exception:
             logger.updater.error(f"Не пройдена аутентификация на сервере", exc_info=True)
+            self.clear_temp()
             os._exit(1)
 
 class ProcessManagement(ResourceManagement):

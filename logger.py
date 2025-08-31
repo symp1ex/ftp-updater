@@ -37,11 +37,11 @@ def logger(file_name, with_console=False):
     except:
         pass
 
-    try: days = int(config["logs"].get("clear_days", 7))
+    try: days = int(config.get("logs", {}).get("clear_days", 7))
     except Exception: days = 7
 
 
-    try: log_folder = config["logs"].get("path", "..\\logs")
+    try: log_folder = config.get("logs", {}).get("path", "..\\logs")
     except Exception: log_folder = "..\\logs"
 
     log_folder_path = os.path.join(about.work_directory, log_folder)
@@ -49,7 +49,7 @@ def logger(file_name, with_console=False):
     if not os.path.exists(log_folder_path):
         os.makedirs(log_folder_path)
 
-    try: log_level = config['logs'].get('level', 'INFO').upper()  # INFO будет значением по умолчанию
+    try: log_level = config.get("logs", {}).get('level', 'INFO').upper()  # INFO будет значением по умолчанию
     except: log_level = "INFO"
 
     if log_level not in LOG_LEVELS:
