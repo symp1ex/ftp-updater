@@ -123,7 +123,7 @@
 py -3.8 -m PyInstaller --hidden-import pythoncom --hidden-import wmi --hidden-import cryptography.fernet --onefile --noconsole --icon=favicon.ico updater.py
 ```
 
-Параметер **`--onefile`** является обязательным.
+Параметр **`--onefile`** является обязательным.
 
 ### Замена ключей безопасности
 
