@@ -1,0 +1,9 @@
+{
+    "app.exe": {
+        "version": "1.1.2.0",
+        "signature": "440536984ecae3a86364ce324c2c239d6247ee518f746beeb999e0ebecf34dbe"
+    },
+    "app.zip": {
+        "signature": "336738db1d2b952fe16c21baa636fcafa196a995c4a1c3f9ef054af4469b176b"
+    }
+}

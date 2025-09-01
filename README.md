@@ -5,9 +5,20 @@
 
 Предполагается, что исполняемый файл утилиты находится в каталоге **`updater`**; каталог **`updater`** должен находиться в корне обновляемого приложения. 
 
-Логика работы следующая: утилита проверяет версию **`exe-файла`**, указанного в конфиге **`updater.json`** ключ **`exe_name`**. Затем она проверяет версию файла на FTP-сервере по пути, также указанному в конфиге по ключу **`ftp_path`**. Если версия файла на FTP-сервере выше, то утилита скачивает всё содержимое каталога **`ftp_path`**, сохраняя его структуру.<br>Остановка и запуск основного приложения при наличии обновления, организованы через настраиваемые cmd-скрипты.
+Обновление осуществляется в 5 этапов, переход на следующий этап происходит только в случае успешного завершения предыдущего:
 
-Утилита работает из временной директории, для возможности самообновления вместе с основным приложением. Присутствуют проверка подписи файла на сервере и шифрование учётных данных от FTP-сервера.
+1. Загрузка **`manifest.json`**  из указанного в конфиге каталога на сервере. С ним сверяются имя исполняемого файла, версия и имя архива с файлами обновления (при наличии)
+
+2. Загрузка исполняемого файла и проверка его подлинности
+
+3. Загрузка архива с остальными файлами обновления (при наличии) и проверка его подлинности
+
+4. Установка исполняемого файла с проверкой целостности и откат к старому файлу, если проверка не пройдена
+
+5. Распаковка архива с сохранением структуры каталогов и последующее удаление всех временных файлов
+
+
+Утилита работает из временной директории, для возможности самообновления вместе с основным приложением. Присутствует шифрование учётных данных от FTP-сервера. Проверка целостности загруженных файлов осуществляется на основе проверки подлинности.
 
 ## Требования
 - Windows 7/8/10/11 (На `Win7` и `Embedded` может появиться сообщение об ошибке при запуске, тогда понадобится установка обновления безопасности `KB3063858`. Гуглится по номеру обновления и названию Винды, весит 900кб. Для `Win7` отдельный установщик, для `Embedded` отдельный)
@@ -34,7 +45,7 @@
     "update": {
         "enabled": true,
         "ftp_path": "updater",
-        "exe_name": "name.exe",
+        "exe_name": "app.exe",
         "attempt_count": 20,
         "attempt_timeout": 20,
         "signature_check_disable_key": "aTdW<<9XyeqNM*LS2<"
@@ -72,131 +83,210 @@
 
 Параметры обновления:
 - `enabled`: включение\отключение обновления
-- `ftp_path`: папка на FTP-сервере, в которой лежат файлы для обновления
-- `exe_name`: имя исполняемого файла основного приложения (расположен рядом с папкой `updater` в корне приложения)
-- `attempt_count`: количество попыток проверки и скачивания обновления
+- `ftp_path`: каталог на FTP-сервере, в котором лежат файлы для обновления
+- `exe_name`: имя исполняемого файла основного приложения (должен располагаться рядом с папкой `updater` в корне приложения)
+- `attempt_count`: количество попыток проверки наличия обновления и его загрузки
 - `attempt_timeout`: интервал между попытками (в секундах)
 - `signature_check_disable_key`: ключ отключающий проверку подписи файла на сервере
 
 Параметры отправки данных на FTP-сервер:
 - `enabled`: включение\отключение отправки данных
-- `local_path`: путь до папки, содержимое которой будет отправляться на FTP-сервер
-- `attempt_count`: количество попыток проверки и скачивания обновления
+- `local_path`: путь до каталога, содержимое которого будет выгружаться на FTP-сервер
+- `attempt_count`: количество попыток отправки данных на FTP-сервер
 - `attempt_timeout`: интервал между попытками (в секундах)
 
 Параметры выполняемых cmd-скриптов, при наличии обновления:
-- `at_startup`: скрипт запускаемых когда обновление было обнаружено
-- `enabled`: включение\отключение запуска этого скрипта
+- `at_startup`: конфигурация запускаемого скрипта, при обнаружении обновления
+- `enabled`: включение\отключение выполнения скрипта
 - `file_name`: путь к скрипту (по умолчанию ожидается что скрипт лежит рядом с файлом `updater.exe`)
-- `timeout`: задержка после выполнения скрипта
+- `timeout`: тайм-аут, в течении которого проверяется активность процесса обновляемого приложения, если процесс остаётся запущен, обновление прерывается
 <br>
 
-- `at_completion`: скрипт запускаемых когда обновление установлено
-- `enabled`: включение\отключение запуска этого скрипта
+- `at_completion`: конфигурация запускаемого скрипта, после установки обновления
+- `enabled`: включение\отключение выполнения скрипта
 - `file_name`: путь к скрипту (по умолчанию ожидается что скрипт лежит рядом с файлом `updater.exe`)
 
 Параметры логирования:
 - `level`: уровень логирования
-- `path`: путь к папке с логами
+- `path`: путь к каталогу с логами
 - `clear_days`: срок хранения логов (дни)
 
 </details>
 
-## Проверка подписи файла на сервере
+## Сборка
 
-### Подпись файла для обновления
-В **`tools/get-hash/`** лежит скрипт, который содержит переменные **`key`** и **`file_path`**.
+### PyInstaller
+
+При сборке желательно явно указать некоторые импорты, команда выглядит так:
+
+```bash
+py -3.8 -m PyInstaller --hidden-import pythoncom --hidden-import wmi --hidden-import cryptography.fernet --onefile --noconsole --icon=favicon.ico updater.py
+```
+
+Параметер **`--onefile`** является обязательным.
+
+### Замена ключей безопасности
+
+Ключи безопасности определяются в **`sys_manager.py`** в классе **`ResourceManagement()`**. Перед сборкой приложения рекомендуется заменить их на собственные уникальные ключи. 
+
+```python
+class ResourceManagement:
+    signature_check_disable_key = "aTdW<<9XyeqNM*LS2<"
+    signature_key = b'R%Q480WMofRwn16L'
+    crypto_key = b't_qxC_HN04Tiy1ish2P27ROYSJt_m7_FE2JT6gYngOM='
+```
+
+- `signature_check_disable_key`: ключ отключения проверки подписи файла при обновлении, может быть случайным набором латинских символов любой длинны
+- `signature_key`: ключ которым формируется уникальная подпись файлов обновления, может быть случайным набором латниских символов любой длинны
+- `crypto_key`: ключ которым шифруются учётные данные от FTP-сервера, имеет определённые требования, получить новый уникальный ключ можно выполнив скрипт **`gen-key.py`** в каталоге **`_tools`**
+
+### Запуск из исходников в виртуальном окружении
+
+Исходники подготовлены для сборки утилиты в .exe-файл. Для запуска в виртуальном окружении, необходимо в файле  **`updater.py`** из метода **`main()`** класса **`Updater()`** убрать часть кода, отвечающую за перемещение исполняемого файла в каталог **`_temp`**
 
 <details>
-<summary><b>get-hash.py</b></summary>
-  
+<summary>Пример того, как в этом случае должен выглядеть метод <b>main()</b> в <b>updater.py</b></summary>
+    
 ```python
-log_file = os.path.join("hash.txt")
-sys.stdout = open(log_file, 'a')
+class Updater(sys_manager.ProcessManagement):
+    ...
+    ...
+    ...
+    def main(self, main_file, temp_dir):
+        try:
+            logger.updater.info(f"updater.exe запущен")
+            logger.updater.info(f"Версия исполянемого файла: {about.version}")
+            logger.updater.debug(f"Рабочая директория: '{work_directory}'")
+            logger.updater.debug(f"Прочитан файл конфигурации: {self.config}")
+            ftp_connect.get_ftp_userdata()
 
-def get_exe_metadata(file_path):
-    try:
-        info = win32api.GetFileVersionInfo(file_path, '\\')
-        version = info['FileVersionMS'] >> 16, info['FileVersionMS'] & 0xFFFF, info['FileVersionLS'] >> 16, info['FileVersionLS'] & 0xFFFF
-        return '.'.join(map(str, version))
-    except Exception as e:
-        print("Error:", e)
-        return None
+            if self.send_data_enabled == True:
+                logger.updater.debug(f"Попытка передать данные на сервер: '{ftp_connect.ftp_server}'")
 
-def get_size_file(file_path):
-    file_stats = os.stat(file_path)
-    size = file_stats[stat.ST_SIZE]
-    return size
+                try:
+                    logger.updater.debug(f"Параметры передачи:\n"
+                                        f"Путь к передаваемому каталогу:'{os.path.abspath(self.date_path)}'\n"
+                                        f"Количество попыток передать содержимое каталога:'{self.max_attempts_send}'\n"
+                                        f"Таймаут между попытками:'{self.timeout_send}'")
 
-key = b'R%Q480WMofRwn16L' # ключ
+                    os.chdir(self.date_path)  # меняем рабочий каталог с корневого каталога для скрипта на указанный каталог здесь
+                    logger.updater.debug(f"Рабочая директория изменена на: '{os.path.abspath(self.date_path)}'")
+                    ftp_connect.upload(self.date_path, self.timeout_send, self.max_attempts_send, attempt=1)
+                except Exception:
+                    logger.updater.error(f"Передача данных на сервер не удалась", exc_info=True)
 
-def sign_metadata(size, version):
-    metadata = f"{size}:{version}"
-    signature = hmac.new(key, metadata.encode(), hashlib.sha256).hexdigest()
-    return signature
+                os.chdir(work_directory)
+                logger.updater.debug(f"Рабочая директория изменена на: '{work_directory}'")
 
+            if self.update_enabled == True:
+                try:
+                    logger.updater.info("Проверяется наличие обновлений")
+                    local_version = self.local_version("..")
+                    # тут обновляем ftp_version и ftp_signature в ftp_connect
+                    ftp_connect.check_ftp_version(self.manifest_file, self.remote_path, self.timeout_update,
+                                                self.max_attempts_update, attempt=1)
+                    status_update = self.check_update(local_version)
 
-file_path = ".\\getad.exe" #путь к файлу, на основе которого хотим получить подпись
-version = get_exe_metadata(file_path)
-size = get_size_file(file_path)
-metadata = sign_metadata(version, size)
-print(version)
-print(size)
-print(metadata)
+                    if status_update == True:
+                        logger.updater.info("Найдено обновление")
+                        temp_exe_file = ftp_connect.download_file(self.exe_name, self.remote_path,
+                                                                self.timeout_update, self.max_attempts_update,
+                                                                attempt=1)
+                        size_file = self.get_size_file(temp_exe_file)
+                        temp_file_version = self.get_exe_version(temp_exe_file)
+                        originalfilename = self.get_file_metadata(temp_exe_file, "OriginalFilename")
+
+                        if not self.signature_check_disable_config == self.signature_check_disable_key:
+                            signature = self.sign_metadata(temp_file_version, size_file, self.exe_name,
+                                                        originalfilename)
+                            if not signature == ftp_connect.ftp_signature:
+                                logger.updater.warn(f"Файл '{self.exe_name}' не прошёл проверку подлинности")
+                                shutil.rmtree(os.path.dirname(self.manifest_file))
+                                logger.updater.debug(f"Временная директория "
+                                                    f"'{os.path.dirname(self.manifest_file)}' удалена")
+                            else:
+                                logger.updater.info(f"Для файла '{self.exe_name}' успешно пройдена проверка подлинноcти")
+                                self.update_run(temp_file_version)
+                        else:
+                            logger.updater.warn("Внимание, проверка подписи файла на сервере выключена")
+                            self.update_run(temp_file_version)
+                    else:
+                        logger.updater.info("Обновление не найдено")
+                        shutil.rmtree(os.path.dirname(self.manifest_file))
+                        logger.updater.debug(f"Временная директория '{os.path.dirname(self.manifest_file)}' удалена")
+
+                except Exception:
+                    logger.updater.error(f"Не удалось произвести обновление", exc_info=True)
+            self.clear_temp()
+            os._exit(0)
+        except Exception:
+            logger.updater.critical(f"Произошло нештатное прерывание основного потока", exc_info=True)
+            self.clear_temp()
+            os._exit(1)
 ```
 </details>
 
-В **`file_path`** указываем путь до исполняемого файла обновляемого приложение. В метаданных файла обязательно должа быть указана версия файла. В **`key`** указывется уникальный ключ, на основе которого генерируется подпись. Ключ может быть любыи набором символов любой длинны.<br>После выполнения скрипта получим текстовый документ содержащий хэш подписи вида **`71f90f211642fac46a57c7463d1b60e5aea3a879753fd8fda3bf5ddc713afee0`**, его необходимо добавить к метаданным файла в поле **`LegalCopyright`**
+## Обновление
 
+### 1. Получение manifest.json и шифрование учётных данных
 
-### Отключение проверки подписи
-Для этого в конфиге нужно указать уникальный ключ для параметра `signature_check_disable_key`. Ключ проверяется в **`updater.py`** в функции **`main()`**. Ключ может быть любым набором символов любой длинны.
+В каталоге **`_tools`** лежит скрипт **`fu-tools.py`**. Нужно положить рядом с ним исполняемый файл обновляемого приложения, в метаданных которого будет указана его версия.
 
-<details>
-<summary><b>updater.py</b></summary>
-  
-```python
-if not check_signature_disabled_key == "aTdW<<9XyeqNM*LS2<": # ключ
-    signature = sign_metadata(ftp, size_file)
-    if not signature == description:
-```
-</details>
+Если обновление содержит другия файлы, кроме исполняемого, их нужно запаковать в zip-архив, с сохранением структуры каталогов и так же положить его рядом с **`fu-tools.py`**. Имя архива должно совпадать с именем исполняемого файла (пример: **`app.exe`** и **`app.zip`**). Сам исполняемый файл в архив лучше не запаковывать.
 
-## Использование шифрования учётных данных
+После выполнения скрипта рядом появятся файлы **`manifest.json`** и **`output.txt`**
 
-Переменная **`key`** функции **`decrypt_data()`** в файле **`updater.py`** сожержит ключ, которым шифруются учётные данные для получения доступа к FTP-серверу
+Полученный **`manifest.json`** загружается на FTP-сервер вместе с исполнямеый файлом и zip-архивом.
+
+В **`output.txt`** будет содержаться логин и пароль от FTP-сервера в зашифрованном виде. Их нужно получить только один раз, учётные данные перед запуском скрипта необходимо прописать в конфиге **`fu-tools.json`** 
 
 <details>
-<summary><b>updater.py</b></summary>
-  
-```python
-def decrypt_data(encrypted_data):
-    try:
-        key = b't_qxC_HN04Tiy1ish2P27ROYSJt_m7_FE2JT6gYngOM=' # ключ
-        cipher = Fernet(key)
-        decrypted_data = cipher.decrypt(encrypted_data).decode()
-        return decrypted_data
-    except Exception:
-        logger.logger_service.error("Не удалось дешифровать данные для подключения к боту", exc_info=True)
+<summary>Описание файла конфигурации <b>fu-tools.json</b></summary>
+
+```json
+{
+	"manifest_key": "HVJ7X^Q?+4Z6rwoB",
+	"crypto_key": "t_qxC_HN04Tiy1ish2P27ROYSJt_m7_FE2JT6gYngOM=",
+	"username": "user",
+	"password": "password",
+	"decrypt_data_1": "",
+	"decrypt_data_2": ""
+}
 ```
+- `manifest_key`: ключ которым формируется уникальная подпись файлов обновления
+- `crypto_key`: ключ которым шифруются учётные данные от FTP-сервера
+- `username`: имя пользователя
+- `password`: пароль
+- `decrypt_data_1`, `decrypt_data_2`: эти два параметры добавлены на случай, если необходимо что-то расшифровать тем же ключом
+
 </details>
 
-В **`tools\crypto-key`** лежит скрипт, в который нужно вставить свои учётные данные и выполнить его. На выходе получите текстовый документ с зашифрованными данными, которые нужно будет вставить в конфиг
+Пример получаемого **`manifest.json`**
 
-<details>
-<summary><b>crypto-key.py</b></summary>
-  
-```python
-# Пример использования:
-key = b't_qxC_HN04Tiy1ish2P27ROYSJt_m7_FE2JT6gYngOM='  # Ваш ключ
-data_to_encrypt = "user"
-data_to_encrypt2 = "password"
+```json
+{
+    "app.exe": {
+        "version": "1.1.2.0",
+        "signature": "440536984ecae3a86364ce324c2c239d6247ee518f746beeb999e0ebecf34dbe"
+    },
+    "app.zip": {
+        "signature": "336738db1d2b952fe16c21baa636fcafa196a995c4a1c3f9ef054af4469b176b"
+    }
+}
 ```
-</details>
 
-Там же лежит **`gen-key.py`**, запустив который, можно сгенерировать свой уникальный ключ.
+### 2. Отключение проверки подписи
+
+Для этого в файле конфигурации **`updater.json`** нужно указать уникальный ключ для параметра `signature_check_disable_key`.
+
+На проверке подписи так же завязана проверка целостности загруженных файлов. Функция добавлена для отладки и её использование не рекомендуется.
+
+Если проверка подписи отключена, то **`manifest.json`** можно взять из примера. Достаточно в нём прописать имя исполняемого файла, его версию и имя zip-архива. Ключ **`signature`** в этом случае не проверяется, его можно убрать, оставить как есть или заменить пустой строкой.
+
+Если в обновлении имеется только исполняемый файл, нужно из **`manifest.json`** убрать ключ с именем архива или изменить его так, чтобы он не совпадал с именем исполнямемого файла (пример: **`app.exe`** и **`app123.zip`**)
 
 ## Ключи, используемые в тестовой сборке
+
 - **`t_qxC_HN04Tiy1ish2P27ROYSJt_m7_FE2JT6gYngOM=`**: ключ для шифрования учтёных данных
 - **`R%Q480WMofRwn16L`**: ключ для генерации подписи исполняемого файла
 - **`aTdW<<9XyeqNM*LS2<`**: ключ для отключения проверки подписи
