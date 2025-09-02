@@ -183,7 +183,7 @@ class Updater(sys_manager.ProcessManagement):
         if main_file.startswith(temp_dir): # если udater запущен из временной директории, то запускаем процесс обновления
             try:
                 logger.updater.info(f"updater.exe запущен")
-                logger.updater.info(f"Версия исполянемого файла: {about.version}")
+                logger.updater.info(f"Версия исполняемого файла: {about.version}")
                 logger.updater.debug(f"Рабочая директория: '{work_directory}'")
                 logger.updater.debug(f"Прочитан файл конфигурации: {self.config}")
                 ftp_connect.get_ftp_userdata()
@@ -279,3 +279,4 @@ if __name__ == "__main__":
     work_directory = os.getcwd()
     temp_dir = os.path.abspath("_temp")  #  получение пути к временной директории
     updater.main(main_file, temp_dir)
+
