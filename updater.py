@@ -187,51 +187,51 @@ class Updater(sys_manager.ProcessManagement):
                 logger.updater.debug(f"Рабочая директория: '{work_directory}'")
                 logger.updater.debug(f"Прочитан файл конфигурации: {self.config}")
                 ftp_connect.get_ftp_userdata()
-
+    
                 if self.send_data_enabled == True:
                     logger.updater.debug(f"Попытка передать данные на сервер: '{ftp_connect.ftp_server}'")
-
+    
                     try:
                         logger.updater.debug(f"Параметры передачи:\n"
-                                            f"Путь к передаваемому каталогу:'{os.path.abspath(self.date_path)}'\n"
-                                            f"Количество попыток передать содержимое каталога:'{self.max_attempts_send}'\n"
-                                            f"Таймаут между попытками:'{self.timeout_send}'")
-
+                                             f"Путь к передаваемому каталогу:'{os.path.abspath(self.date_path)}'\n"
+                                             f"Количество попыток передать содержимое каталога:'{self.max_attempts_send}'\n"
+                                             f"Таймаут между попытками:'{self.timeout_send}'")
+    
                         os.chdir(self.date_path)  # меняем рабочий каталог с корневого каталога для скрипта на указанный каталог здесь
                         logger.updater.debug(f"Рабочая директория изменена на: '{os.path.abspath(self.date_path)}'")
                         ftp_connect.upload(self.date_path, self.timeout_send, self.max_attempts_send, attempt=1)
                     except Exception:
                         logger.updater.error(f"Передача данных на сервер не удалась", exc_info=True)
-
+    
                     os.chdir(work_directory)
                     logger.updater.debug(f"Рабочая директория изменена на: '{work_directory}'")
-
+    
                 if self.update_enabled == True:
                     try:
                         logger.updater.info("Проверяется наличие обновлений")
                         local_version = self.local_version("..")
                         # тут обновляем ftp_version и ftp_signature в ftp_connect
                         ftp_connect.check_ftp_version(self.manifest_file, self.remote_path, self.timeout_update,
-                                                    self.max_attempts_update, attempt=1)
+                                                      self.max_attempts_update, attempt=1)
                         status_update = self.check_update(local_version)
-
+    
                         if status_update == True:
                             logger.updater.info("Найдено обновление")
                             temp_exe_file = ftp_connect.download_file(self.exe_name, self.remote_path,
-                                                                    self.timeout_update, self.max_attempts_update,
-                                                                    attempt=1)
+                                                                      self.timeout_update, self.max_attempts_update,
+                                                                      attempt=1)
                             size_file = self.get_size_file(temp_exe_file)
                             temp_file_version = self.get_exe_version(temp_exe_file)
                             originalfilename = self.get_file_metadata(temp_exe_file, "OriginalFilename")
-
+    
                             if not self.signature_check_disable_config == self.signature_check_disable_key:
                                 signature = self.sign_metadata(temp_file_version, size_file, self.exe_name,
-                                                            originalfilename)
+                                                               originalfilename)
                                 if not signature == ftp_connect.ftp_signature:
                                     logger.updater.warn(f"Файл '{self.exe_name}' не прошёл проверку подлинности")
                                     shutil.rmtree(os.path.dirname(self.manifest_file))
                                     logger.updater.debug(f"Временная директория "
-                                                        f"'{os.path.dirname(self.manifest_file)}' удалена")
+                                                         f"'{os.path.dirname(self.manifest_file)}' удалена")
                                 else:
                                     logger.updater.info(f"Для файла '{self.exe_name}' успешно пройдена проверка подлинноcти")
                                     self.update_run(temp_file_version)
@@ -242,7 +242,7 @@ class Updater(sys_manager.ProcessManagement):
                             logger.updater.info("Обновление не найдено")
                             shutil.rmtree(os.path.dirname(self.manifest_file))
                             logger.updater.debug(f"Временная директория '{os.path.dirname(self.manifest_file)}' удалена")
-
+    
                     except Exception:
                         logger.updater.error(f"Не удалось произвести обновление", exc_info=True)
                 self.clear_temp()
@@ -259,7 +259,7 @@ class Updater(sys_manager.ProcessManagement):
                     os.makedirs(temp_dir)
                 # Копируем исполняемый файл в указанную директорию
                 temp_exe = os.path.join(temp_dir, os.path.basename(main_file))
-                source_file = "updater.exe"
+                source_file = os.path.basename(sys.argv[0])
                 shutil.copy(source_file, temp_exe)
                 # Копируем файл updater.json во временную директорию
                 updater_temp = os.path.join(temp_dir, updater_file)
@@ -269,14 +269,14 @@ class Updater(sys_manager.ProcessManagement):
                 os._exit(0)
             except Exception:
                 logger.updater.critical(f"Не удалось запустить обновление", exc_info=True)
-                self.clear_temp()
                 os._exit(1)
 
 if __name__ == "__main__":
     ftp_connect = connectors.FtpConnection()
     updater = Updater()
     main_file = os.path.abspath(sys.argv[0]) # получаем текущую директорию
+    logger.updater.debug(f"Текущая директория: {main_file}")
     work_directory = os.getcwd()
     temp_dir = os.path.abspath("_temp")  #  получение пути к временной директории
+    logger.updater.debug(f"Временная директория: {temp_dir}")
     updater.main(main_file, temp_dir)
-
