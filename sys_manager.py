@@ -3,8 +3,6 @@ import configs
 import logger
 from cryptography.fernet import Fernet
 import os
-import wmi
-import pythoncom
 import time
 import subprocess
 import sys
@@ -183,40 +181,51 @@ class ProcessManagement(ResourceManagement):
             self.clear_temp()
             os._exit(1)
 
-    def check_procces(self, file_name):
+    def check_process(self, file_name):
         try:
-            # Инициализируем COM для текущего потока
-            pythoncom.CoInitialize()
+            command_str = f'tasklist | findstr /i "{file_name}" >nul'
 
-            try:
-                c = wmi.WMI()
-                # Ищем процесс по имени
-                for process in c.Win32_Process():
-                    if process.Name.lower() == file_name.lower():
-                        logger.updater.debug(f"Процесс '{file_name}' активен")
-                        return True
+            result = subprocess.run(
+                command_str,
+                shell=True,
+                capture_output=False,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                check=False
+            )
 
+            if result.returncode == 0:
+                logger.updater.debug(f"Процесс '{file_name}' активен")
+                return True
+            elif result.returncode == 1:
                 logger.updater.debug(f"Процесс '{file_name}' неактивен")
                 return False
+            else:
+                # Если returncode не 0 или 1, это указывает на ошибку выполнения команды
+                logger.updater.warning(
+                    f"Ошибка выполнения команды CMD для процесса '{file_name}'. Код возврата: {result.returncode}",)
+                return None
 
-            finally:
-                # Освобождаем COM
-                pythoncom.CoUninitialize()
-
+        except FileNotFoundError:
+            # Это исключение может возникнуть, если 'cmd.exe' или одна из команд
+            # ('tasklist', 'findstr') не найдена в системном PATH.
+            logger.updater.error( f"Команда CMD или ее компоненты (tasklist/findstr) не найдены. "
+                                                 f"Убедитесь, что они доступны в системном PATH.", exc_info=True)
+            return None
         except Exception:
-            logger.updater.error(f"Не удалось получить статус процесса '{file_name}'", exc_info=True)
-            return False
+            logger.updater.error(
+                f"Не удалось получить статус процесса '{file_name}' через CMD (tasklist|findstr)", exc_info=True)
+            return None
 
-    def check_procces_cycle(self, exe_name):
+    def check_process_cycle(self, exe_name):
         count_attempt = int(self.action_timeout / 5 + 1)
 
         try:
             logger.updater.info(f"Проверяем активность процесса '{exe_name}'")
             for attempt in range(count_attempt):
-                process_found = self.check_procces(exe_name)
+                process_found = self.check_process(exe_name)
 
                 if process_found:
-                    logger.updater.debug(f"Cледущая проверка через (5) секунд.")
+                    logger.updater.debug(f"Cледующая проверка через (5) секунд.")
                     time.sleep(5)
                     continue
                 else:

@@ -41,11 +41,17 @@ class FtpConnection(sys_manager.ResourceManagement):
             if self.encryption_enabled == False:
                 self.ftp_username = self.config["ftp"]["userdata"].get("ftp_username")
                 self.ftp_password = self.config["ftp"]["userdata"].get("ftp_password")
-                logger.updater.warn("Шифрование пользовтельских данных для подключения к FTP-серверу отключено")
+                logger.updater.warn("Шифрование пользовательских данных для подключения к FTP-серверу отключено")
+
+                self.ftp_context = lambda: FtpContextManager(
+                    self.ftp_server,
+                    self.ftp_username,
+                    self.ftp_password
+                )
             else:
                 self.ftp_username = self.decrypt_data(self.config["ftp"]["userdata"].get("ftp_username"))
                 self.ftp_password = self.decrypt_data(self.config["ftp"]["userdata"].get("ftp_password"))
-                logger.updater.debug("Пользовтельские данные для подключения к FTP-серверу успешно расшифрованы")
+                logger.updater.debug("Пользовательские данные для подключения к FTP-серверу успешно расшифрованы")
 
                 self.ftp_context = lambda: FtpContextManager(
                     self.ftp_server,
@@ -85,7 +91,8 @@ class FtpConnection(sys_manager.ResourceManagement):
             os._exit(1)
 
     def download_file(self, file_name, remote_path, timeout_update, max_attempts, attempt):
-        remote_file_path = f"{remote_path}/{os.path.basename(file_name)}"  # путь до файла на фтп с которым сравнивается версия и подпись
+        # путь до файла на фтп с которым сравнивается версия и подпись
+        remote_file_path = f"{remote_path}/{os.path.basename(file_name)}"
         try:
             temp_resources_path = os.path.dirname(self.manifest_file)
 
