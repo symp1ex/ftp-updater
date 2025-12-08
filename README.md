@@ -120,7 +120,7 @@
 При сборке желательно явно указать некоторые импорты, команда выглядит так:
 
 ```bash
-py -3.8 -m PyInstaller --hidden-import cryptography.fernet --onefile --noconsole --version-file=version.txt --icon=favicon.ico updater.py
+py -3.8 -m PyInstaller --hidden-import cryptography.fernet --onefile --noconsole --icon=favicon.ico updater.py
 ```
 
 Параметр **`--onefile`** является обязательным.
@@ -290,3 +290,4 @@ class Updater(sys_manager.ProcessManagement):
 - **`t_qxC_HN04Tiy1ish2P27ROYSJt_m7_FE2JT6gYngOM=`**: ключ для шифрования учётных данных
 - **`R%Q480WMofRwn16L`**: ключ для генерации подписи исполняемого файла
 - **`aTdW<<9XyeqNM*LS2<`**: ключ для отключения проверки подписи
+
