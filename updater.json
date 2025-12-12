@@ -8,18 +8,19 @@
         }
     },
     "update": {
-        "enabled": true,
         "ftp_path": "updater",
         "exe_name": "name.exe",
         "attempt_count": 20,
         "attempt_timeout": 20,
-        "signature_check_disable_key": "aTdW<<9XyeqNM*LS2<"
-    },
-    "send_data": {
-        "enabled": false,
-        "local_path": "..\\date",
-        "attempt_count": 20,
-        "attempt_timeout": 20
+        "signature_check_disable_key": "aTdW<<9XyeqNM*LS2<",
+		"http_update": {
+            "enabled": false,
+            "ftp_mirror_update": false,
+            "data_connection": {
+                "encryption": false,
+                "url": ""
+            }
+        }
     },
     "actions": {
         "at_startup": {

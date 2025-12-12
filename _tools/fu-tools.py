@@ -121,6 +121,7 @@ def main():
 
     username = config.get("username")
     password = config.get("password")
+    url = config.get("url")
 
     decrypt_data_1 = config.get("decrypt_data_1")
     decrypt_data_2 = config.get("decrypt_data_2")
@@ -163,6 +164,7 @@ def main():
 
     encrypted_data = encrypt_data(crypto_key_bytes, username)
     encrypted_data2 = encrypt_data(crypto_key_bytes, password)
+    encrypted_data3 = encrypt_data(crypto_key_bytes, url)
 
     try: encrypted_data_decode = encrypted_data.decode('utf-8')
     except: encrypted_data_decode = "None"
@@ -170,11 +172,17 @@ def main():
     try: encrypted_data_decode2 = encrypted_data2.decode('utf-8')
     except: encrypted_data_decode2 = "None"
 
+    try: encrypted_data_decode3 = encrypted_data3.decode('utf-8')
+    except: encrypted_data_decode3 = "None"
+
 
     print()
     print("Имя пользователя:", encrypted_data_decode)
 
     print("Пароль:", encrypted_data_decode2)
+    print()
+
+    print("Адрес сервера:", encrypted_data_decode3)
     print()
 
 
@@ -193,20 +201,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

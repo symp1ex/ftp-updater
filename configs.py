@@ -11,18 +11,19 @@ config_data = {
         }
     },
     "update": {
-        "enabled": True,
         "ftp_path": "updater",
         "exe_name": "app.exe",
-        "attempt_count": 20,
-        "attempt_timeout": 20,
-        "signature_check_disable_key": ""
-    },
-    "send_data": {
-        "enabled": False,
-        "local_path": "..\\date",
-        "attempt_count": 20,
-        "attempt_timeout": 20
+        "attempt_count": 10,
+        "attempt_timeout": 10,
+        "signature_check_disable_key": "",
+        "http_update": {
+            "enabled": False,
+            "ftp_mirror_update": False,
+            "data connection": {
+                "encryption": False,
+                "url": "http://server.com/updater/"
+            }
+        }
     },
     "actions": {
         "at_startup": {

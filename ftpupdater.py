@@ -12,18 +12,51 @@ import shutil
 class Updater(sys_manager.ProcessManagement):
     def __init__(self):
         super().__init__()
-        self.send_data_enabled = self.config.get("send_data", {}).get("enabled", 1)
-        self.update_enabled = self.config.get("update", {}).get("enabled", 1)
         self.signature_check_disable_config = self.config.get("update", {}).get("signature_check_disable_key", "")
+        self.remote_path = self.config.get("update", {}).get("ftp_path", "")  # папка на фтп с которой качаются все файлы для обновления
 
-        self.remote_path = self.config.get("update", {}).get("ftp_path")  # папка на фтп с которой качаются все файлы для обновления
-        self.date_path = self.config.get("send_data", {}).get("local_path", "..\\date")  # путь откуда берём данные для отправки
+        try: self.max_attempts_update = int(self.config.get("update", {}).get("attempt_count", 5))  # количество попыток
+        except: self.max_attempts_update = 5
 
-        self.max_attempts_update = self.config.get("update", {}).get("attempt_count", 5)  # количество попыток
-        self.timeout_update = self.config.get("update", {}).get("attempt_timeout", 10)  # тайм-аут
+        try: self.timeout_update = int(self.config.get("update", {}).get("attempt_timeout", 10))  # тайм-аут
+        except: self.timeout_update = 10
 
-        self.max_attempts_send = self.config.get("send_data", {}).get("attempt_count", 5)  # количество попыток отправки
-        self.timeout_send = self.config.get("send_data", {}).get("attempt_timeout", 10)  # тайм-аут для отправки
+        self.update_method = None
+        self.new_version = None
+        self.exe_signature = None
+        self.zip_signature = None
+
+    def check_new_version(self, file_name, remote_path, timeout_update, max_attempts, attempt):
+        try:
+            if self.update_method == "http":
+                file_path, update_method = http_connect.download_file(
+                    file_name, remote_path, timeout_update, max_attempts, attempt)
+                self.update_method = update_method
+            else:
+                file_path = ftp_connect.download_file(file_name, remote_path, timeout_update, max_attempts, attempt)[0]
+
+            if file_path:
+                self.read_manifest()
+                self.get_name_zip()
+                # Получение версии файла на фтп
+                self.new_version = self.manifest[self.exe_name].get("version")
+                if self.new_version:
+                    logger.updater.info(f"Версия файла на сервере: {self.new_version}")
+
+                self.exe_signature = self.manifest[self.exe_name].get("signature")
+                if self.exe_signature:
+                    logger.updater.debug(f"Подпись файла на сервере: '{self.exe_signature}'")
+
+                if self.zip_name:
+                    self.zip_signature = self.manifest[self.zip_name].get("signature")
+                    if self.zip_signature:
+                        logger.updater.debug(f"Подпись zip-архива на сервере: '{self.zip_signature}'")
+                        return
+                    logger.updater.debug(f"Подпись zip-архива на сервере: '{None}'")
+        except Exception:
+            logger.updater.error(f"Не удалось проверить версию файла на удалённом сервере", exc_info=True)
+            self.clear_temp()
+            os._exit(1)
 
     def local_version(self, parent_directory):
         try:
@@ -41,7 +74,7 @@ class Updater(sys_manager.ProcessManagement):
     def check_update(self, local_version):
         try:
             # Разбиваем версии на части и преобразуем их в числа
-            parts1 = list(map(int, ftp_connect.ftp_version.split('.')))
+            parts1 = list(map(int, self.new_version.split('.')))
             parts2 = list(map(int, local_version.split('.')))
 
             # Сравниваем каждую часть версии, начиная с первой
@@ -53,7 +86,7 @@ class Updater(sys_manager.ProcessManagement):
             return False  # Версии идентичны
         except Exception:
             logger.updater.error(
-                f"Не удалось преобразовать информацию о версии файла '{ftp_connect.ftp_version}' "
+                f"Не удалось преобразовать информацию о версии файла '{self.new_version}' "
                 f"в подходящий формат для сравнения с '{local_version}'", exc_info=True)
             self.clear_temp()
             os._exit(1)
@@ -86,20 +119,20 @@ class Updater(sys_manager.ProcessManagement):
                 signature = self.sign_metadata(temp_file_version, size_file, os.path.basename(self.old_file),
                                                originalfilename)
 
-                if not signature == ftp_connect.ftp_signature:
+                if not signature == self.exe_signature:
                     self.restore_file()
                     raise ValueError(f"Установленный файл '{os.path.abspath(self.old_file)}' "
                                      f"не прошёл проверку целостности и был удалён")
                 else:
                     logger.updater.info(f"Проверка целостности пройдена, файл '{os.path.abspath(self.old_file)}' "
                                         f"успешно обновлён")
-                    if ftp_connect.zip_name:
+                    if self.zip_name:
                         self.unzip_and_get_files("..")
                     update_successful = True
 
             else:
                 logger.updater.info(f"Файл '{os.path.abspath(self.old_file)}' успешно обновлён")
-                if ftp_connect.zip_name:
+                if self.zip_name:
                     self.unzip_and_get_files("..")
                 update_successful = True
 
@@ -129,28 +162,32 @@ class Updater(sys_manager.ProcessManagement):
 
     def update_run(self, temp_file_version):
         logger.updater.debug(f"Версия загруженного файла: {temp_file_version}")
-        if temp_file_version != ftp_connect.ftp_version:
+        if temp_file_version != self.new_version:
             logger.updater.warn(f"Версия загруженного файла отличается от данных 'manifest.json', "
                                 f"процесс обновления будет прерван")
             shutil.rmtree(os.path.dirname(self.manifest_file))
             logger.updater.debug(f"Временная директория '{os.path.dirname(self.manifest_file)}' удалена")
             return
 
-        if ftp_connect.zip_name:
-            self.zip_path = ftp_connect.download_file(ftp_connect.zip_name, self.remote_path,
-                                                             self.timeout_update, self.max_attempts_update,
-                                                             attempt=1)
+        if self.zip_name:
+            if self.update_method == "http":
+                self.zip_path = http_connect.download_file(
+                    self.zip_name, self.remote_path, self.timeout_update, self.max_attempts_update, attempt=1)[0]
+            else:
+                self.zip_path = ftp_connect.download_file(
+                    self.zip_name, self.remote_path, self.timeout_update, self.max_attempts_update, attempt=1)[0]
+
             if not self.signature_check_disable_config == self.signature_check_disable_key:
                 size_file = self.get_size_file(self.zip_path)
-                signature = self.sign_metadata(int(size_file / len(ftp_connect.zip_name)), size_file,
-                                               ftp_connect.zip_name,
+                signature = self.sign_metadata(int(size_file / len(self.zip_name)), size_file,
+                                               self.zip_name,
                                                "originalfilename")
-                if not signature == ftp_connect.zip_signature:
-                    logger.updater.warn(f"Zip-архив '{ftp_connect.zip_name}' не прошёл проверку подлинности")
+                if not signature == self.zip_signature:
+                    logger.updater.warn(f"Zip-архив '{self.zip_name}' не прошёл проверку подлинности")
                     shutil.rmtree(os.path.dirname(self.manifest_file))
                     logger.updater.debug(f"Временная директория '{os.path.dirname(self.manifest_file)}' удалена")
                     return
-                logger.updater.info(f"Для zip-архива '{ftp_connect.zip_name}' успешно пройдена проверка подлинноcти")
+                logger.updater.info(f"Для zip-архива '{self.zip_name}' успешно пройдена проверка подлинноcти")
         try:
             if self.action_startup == True:
                 self.action_run(self.startup_script, main_file, timeout=True)
@@ -186,65 +223,58 @@ class Updater(sys_manager.ProcessManagement):
                 logger.updater.info(f"Версия исполняемого файла: {about.version}")
                 logger.updater.debug(f"Рабочая директория: '{work_directory}'")
                 logger.updater.debug(f"Прочитан файл конфигурации: {self.config}")
-                ftp_connect.get_ftp_userdata()
 
-                if self.send_data_enabled == True:
-                    logger.updater.debug(f"Попытка передать данные на сервер: '{ftp_connect.ftp_server}'")
+                if http_connect.http_update_enabled == True:
+                    self.update_method = "http"
+                    http_connect.get_url()
+                    if http_connect.ftp_mirror_update_enabled == True:
+                        ftp_connect.get_ftp_userdata()
+                else:
+                    self.update_method = "ftp"
+                    ftp_connect.get_ftp_userdata()
 
-                    try:
-                        logger.updater.debug(f"Параметры передачи:\n"
-                                             f"Путь к передаваемому каталогу:'{os.path.abspath(self.date_path)}'\n"
-                                             f"Количество попыток передать содержимое каталога:'{self.max_attempts_send}'\n"
-                                             f"Таймаут между попытками:'{self.timeout_send}'")
+                try:
+                    logger.updater.info("Проверяется наличие обновлений")
+                    local_version = self.local_version("..")
+                    # тут обновляем ftp_version и ftp_signature в ftp_connect
+                    self.check_new_version(self.manifest_file, self.remote_path, self.timeout_update,
+                                                  self.max_attempts_update, attempt=1)
+                    status_update = self.check_update(local_version)
 
-                        os.chdir(self.date_path)  # меняем рабочий каталог с корневого каталога для скрипта на указанный каталог здесь
-                        logger.updater.debug(f"Рабочая директория изменена на: '{os.path.abspath(self.date_path)}'")
-                        ftp_connect.upload(self.date_path, self.timeout_send, self.max_attempts_send, attempt=1)
-                    except Exception:
-                        logger.updater.error(f"Передача данных на сервер не удалась", exc_info=True)
+                    if status_update == True:
+                        logger.updater.info("Найдено обновление")
+                        if self.update_method == "http":
+                            temp_exe_file = http_connect.download_file(
+                                self.exe_name, self.remote_path, self.timeout_update, self.max_attempts_update, attempt=1)[0]
+                        else:
+                            temp_exe_file = ftp_connect.download_file(
+                                self.exe_name, self.remote_path, self.timeout_update, self.max_attempts_update, attempt=1)[0]
 
-                    os.chdir(work_directory)
-                    logger.updater.debug(f"Рабочая директория изменена на: '{work_directory}'")
+                        size_file = self.get_size_file(temp_exe_file)
+                        temp_file_version = self.get_exe_version(temp_exe_file)
+                        originalfilename = self.get_file_metadata(temp_exe_file, "OriginalFilename")
 
-                if self.update_enabled == True:
-                    try:
-                        logger.updater.info("Проверяется наличие обновлений")
-                        local_version = self.local_version("..")
-                        # тут обновляем ftp_version и ftp_signature в ftp_connect
-                        ftp_connect.check_ftp_version(self.manifest_file, self.remote_path, self.timeout_update,
-                                                      self.max_attempts_update, attempt=1)
-                        status_update = self.check_update(local_version)
-
-                        if status_update == True:
-                            logger.updater.info("Найдено обновление")
-                            temp_exe_file = ftp_connect.download_file(self.exe_name, self.remote_path,
-                                                                      self.timeout_update, self.max_attempts_update,
-                                                                      attempt=1)
-                            size_file = self.get_size_file(temp_exe_file)
-                            temp_file_version = self.get_exe_version(temp_exe_file)
-                            originalfilename = self.get_file_metadata(temp_exe_file, "OriginalFilename")
-
-                            if not self.signature_check_disable_config == self.signature_check_disable_key:
-                                signature = self.sign_metadata(temp_file_version, size_file, self.exe_name,
-                                                               originalfilename)
-                                if not signature == ftp_connect.ftp_signature:
-                                    logger.updater.warn(f"Файл '{self.exe_name}' не прошёл проверку подлинности")
-                                    shutil.rmtree(os.path.dirname(self.manifest_file))
-                                    logger.updater.debug(f"Временная директория "
-                                                         f"'{os.path.dirname(self.manifest_file)}' удалена")
-                                else:
-                                    logger.updater.info(f"Для файла '{self.exe_name}' успешно пройдена проверка подлинноcти")
-                                    self.update_run(temp_file_version)
+                        if not self.signature_check_disable_config == self.signature_check_disable_key:
+                            signature = self.sign_metadata(temp_file_version, size_file, self.exe_name,
+                                                           originalfilename)
+                            if not signature == self.exe_signature:
+                                logger.updater.warn(f"Файл '{self.exe_name}' не прошёл проверку подлинности")
+                                shutil.rmtree(os.path.dirname(self.manifest_file))
+                                logger.updater.debug(f"Временная директория "
+                                                     f"'{os.path.dirname(self.manifest_file)}' удалена")
                             else:
-                                logger.updater.warn("Внимание, проверка подписи файла на сервере выключена")
+                                logger.updater.info(f"Для файла '{self.exe_name}' успешно пройдена проверка подлинноcти")
                                 self.update_run(temp_file_version)
                         else:
-                            logger.updater.info("Обновление не найдено")
-                            shutil.rmtree(os.path.dirname(self.manifest_file))
-                            logger.updater.debug(f"Временная директория '{os.path.dirname(self.manifest_file)}' удалена")
+                            logger.updater.warn("Внимание, проверка подписи файла на сервере выключена")
+                            self.update_run(temp_file_version)
+                    else:
+                        logger.updater.info("Обновление не найдено")
+                        shutil.rmtree(os.path.dirname(self.manifest_file))
+                        logger.updater.debug(f"Временная директория '{os.path.dirname(self.manifest_file)}' удалена")
 
-                    except Exception:
-                        logger.updater.error(f"Не удалось произвести обновление", exc_info=True)
+                except Exception:
+                    logger.updater.error(f"Не удалось произвести обновление", exc_info=True)
                 self.clear_temp()
                 os._exit(0)
             except Exception:
@@ -273,6 +303,7 @@ class Updater(sys_manager.ProcessManagement):
 
 if __name__ == "__main__":
     ftp_connect = connectors.FtpConnection()
+    http_connect = connectors.HttpConnection()
     updater = Updater()
 
     main_file = os.path.abspath(sys.argv[0]) # получаем текущую директорию
