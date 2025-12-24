@@ -262,6 +262,7 @@ class Updater(sys_manager.ProcessManagement):
 
 </details>
 <br>
+
 Пример получаемого **`manifest.json`**
 
 ```json
@@ -292,3 +293,4 @@ class Updater(sys_manager.ProcessManagement):
 - **`t_qxC_HN04Tiy1ish2P27ROYSJt_m7_FE2JT6gYngOM=`**: ключ для шифрования учётных данных
 - **`R%Q480WMofRwn16L`**: ключ для генерации подписи исполняемого файла
 - **`aTdW<<9XyeqNM*LS2<`**: ключ для отключения проверки подписи
+
