@@ -43,12 +43,15 @@ config_data = {
     }
 }
 
-def write_json_file(file_name, config):
+def write_json_file(file_name, config, create=False):
     import logger
     try:
         with open(file_name, "w", encoding="utf-8") as file:
             json.dump(config, file, ensure_ascii=False, indent=4)
-        logger.updater.warning(f"Файл '{file_name}' не найден. Будет создан новый файл конфигурации, перезапустите приложение")
+
+        if create == True:
+            logger.updater.warning(f"Файл '{file_name}' не найден. Будет создан новый файл конфигурации, перезапустите приложение")
+
         logger.updater.info(f"Данные записаны в '{file_name}'")
         logger.updater.debug(config)
     except Exception:
@@ -62,9 +65,9 @@ def read_config_file(json_file, create=False):
             return config
     except FileNotFoundError:
         if create == True:
-            write_json_file(json_file, config_data)
+            write_json_file(json_file, config_data, True)
             os._exit(1)
     except json.JSONDecodeError:
         if create == True:
-            write_json_file(json_file, config_data)
+            write_json_file(json_file, config_data, True)
             os._exit(1)

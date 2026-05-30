@@ -9,6 +9,61 @@ import os
 import time
 import shutil
 
+def checking_launch_arguments():
+    try:
+        if "--mkey" in sys.argv:
+            idx = sys.argv.index("--mkey")
+            key = sys.argv[idx + 1]
+            updater.create_manifest(key)
+            os._exit(0)
+
+        # HTTP
+        if "--http" in sys.argv:
+            idx = sys.argv.index("--http")
+            url = sys.argv[idx + 1]
+            updater.save_http_config(url)
+            os._exit(0)
+
+        # FTP
+        ftp_server = None
+        ftp_user = None
+        ftp_pass = None
+
+        if "--ftpserver" in sys.argv:
+            idx = sys.argv.index("--ftpserver")
+            ftp_server = sys.argv[idx + 1]
+
+        if "--ftpuser" in sys.argv:
+            idx = sys.argv.index("--ftpuser")
+            ftp_user = sys.argv[idx + 1]
+
+        if "--ftppass" in sys.argv:
+            idx = sys.argv.index("--ftppass")
+            ftp_pass = sys.argv[idx + 1]
+
+        if ftp_server or ftp_user or ftp_pass:
+            updater.save_ftp_config(
+                ftp_server=ftp_server,
+                ftp_user=ftp_user,
+                ftp_pass=ftp_pass
+            )
+            os._exit(0)
+
+    except (IndexError, ValueError):
+        main_file = os.path.abspath(sys.argv[0])
+        exe = os.path.basename(main_file)
+
+        logger.updater.critical(
+            f"Usage:\n"
+            f"{exe} --mkey <signature_key> OR\n"
+            f"{exe} --http <url> OR\n"
+            f"{exe} --ftpserver <server>\n"
+            f"{exe} --ftpuser <user>\n"
+            f"{exe} --ftppass <password>"
+        )
+        sys.exit(1)
+
+
 class Updater(sys_manager.ProcessManagement):
     def __init__(self):
         super().__init__()
@@ -306,6 +361,7 @@ if __name__ == "__main__":
     http_connect = connectors.HttpConnection()
     updater = Updater()
 
+    checking_launch_arguments()
     main_file = os.path.abspath(sys.argv[0]) # получаем текущую директорию
     logger.updater.debug(f"Текущая директория: {main_file}")
     work_directory = os.getcwd()

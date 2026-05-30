@@ -120,7 +120,7 @@ class ResourceManagement:
             main_file = os.path.abspath(sys.argv[0])
             temp_dir = os.path.dirname(main_file)
             # Команда для удаления файла
-            command = f"timeout /t 45 > nul && rd /q/s \"{temp_dir}\""
+            command = f"timeout /t 7 > nul && rd /q/s \"{temp_dir}\""
             working_directory = os.path.dirname(os.path.dirname(temp_dir))
             # Выполняем команду в отдельном процессе
             subprocess.Popen(command, shell=True, cwd=working_directory)
@@ -148,6 +148,132 @@ class ResourceManagement:
         except Exception:
             logger.updater.error(f"Не пройдена аутентификация на сервере", exc_info=True)
             self.clear_temp()
+            os._exit(1)
+
+    def encrypt_data(self, data):
+        try:
+            cipher = Fernet(self.crypto_key)
+            encrypted_data = cipher.encrypt(data.encode())
+            return encrypted_data
+        except Exception:
+            logger.updater.error("Не удалось зашифровать данные", exc_info=True)
+            os._exit(1)
+
+    def create_manifest(self, key):
+        def signed(manifest_key, key1, key2, key3, key4):
+            try:
+                metadata = f"{key1}:{key2}:{key3}:{key4}"
+                manifest_key_bytes = manifest_key.encode('utf-8')
+                signature = hmac.new(manifest_key_bytes, metadata.encode(), hashlib.sha256).hexdigest()
+            except Exception:
+                logger.updater.error("Не удалось получить подпись для файла", exc_info=True)
+                signature = "None"
+            return signature
+
+        try:
+            exe_name_0 = self.exe_name.split('.')[0]  # получаем 'file'
+            zip_name = f"{exe_name_0}.zip"  # создаем новую строку 'file.zip'
+        except Exception:
+            logger.updater.error("Не удалось получить имя архива", exc_info=True)
+            zip_name = False
+
+        try:
+            version_exe = self.get_exe_version(self.exe_name)
+            originalfilename_exe = self.get_file_metadata(self.exe_name, "OriginalFilename")
+            size_exe = self.get_size_file(self.exe_name)
+
+            signed_exe = signed(key, version_exe, size_exe, self.exe_name, originalfilename_exe)
+
+            try:
+                file_stats = os.stat(zip_name)
+                size_zip = file_stats[stat.ST_SIZE]
+                zip_file = True
+            except Exception:
+                logger.updater.warning(f"Архив {zip_name} не найден")
+                zip_file = False
+
+            if zip_file:
+                signed_zip = signed(key, int(size_zip / len(zip_name)), size_zip, zip_name,
+                                           "originalfilename")
+
+                manifest_data = {
+                    self.exe_name: {
+                        "version": version_exe,
+                        "signature": signed_exe
+                    },
+                    zip_name: {
+                        "signature": signed_zip
+                    }
+                }
+            else:
+                manifest_data = {
+                    self.exe_name: {
+                        "version": version_exe,
+                        "signature": signed_exe
+                    }
+                }
+
+            configs.write_json_file("manifest.json", manifest_data)
+        except Exception:
+            logger.updater.error("Не удалось создать 'manifest.json'", exc_info=True)
+            os._exit(1)
+
+    def save_http_config(self, url):
+        try:
+            if not url:
+                logger.updater.warning("Адрес сервера не указан")
+                os._exit(1)
+
+            encrypted_url = self.encrypt_data(url).decode()
+
+            self.config["update"]["http_update"]["data_connection"]["url"] = encrypted_url
+            self.config["update"]["http_update"]["data_connection"]["encryption"] = True
+
+            configs.write_json_file(
+                self.config_file,
+                self.config
+            )
+
+            logger.updater.info("URL успешно сохранён в конфигурации")
+            os._exit(0)
+
+        except Exception:
+            logger.updater.error(
+                "Не удалось сохранить HTTP URL",
+                exc_info=True
+            )
+            os._exit(1)
+
+    def save_ftp_config(self, ftp_server=None, ftp_user=None, ftp_pass=None):
+        try:
+            logger.updater.debug("Запущен режим настройки FTP")
+
+            if ftp_server:
+                self.config["ftp"]["ftp_server"] = ftp_server
+
+            if ftp_user:
+                self.config["ftp"]["userdata"]["ftp_username"] = \
+                    self.encrypt_data(ftp_user).decode()
+
+            if ftp_pass:
+                self.config["ftp"]["userdata"]["ftp_password"] = \
+                    self.encrypt_data(ftp_pass).decode()
+
+            if ftp_user or ftp_pass:
+                self.config["ftp"]["userdata"]["encryption"] = True
+
+            configs.write_json_file(
+                self.config_file,
+                self.config
+            )
+
+            logger.updater.info("FTP-конфигурация успешно сохранена")
+
+        except Exception:
+            logger.updater.error(
+                "Не удалось сохранить FTP-конфигурацию",
+                exc_info=True
+            )
             os._exit(1)
 
 class ProcessManagement(ResourceManagement):
