@@ -169,10 +169,10 @@ class Updater(sys_manager.ProcessManagement):
                 logger.updater.debug(f"Проверяем целостность исполняемого файла: '{os.path.abspath(self.old_file)}'")
                 size_file = self.get_size_file(os.path.abspath(self.old_file))
                 temp_file_version = self.get_exe_version(os.path.abspath(self.old_file))
-                originalfilename = self.get_file_metadata(os.path.abspath(self.old_file), "OriginalFilename")
+                file_hash = self.file_sha256(os.path.abspath(self.old_file))
 
                 signature = self.sign_metadata(temp_file_version, size_file, os.path.basename(self.old_file),
-                                               originalfilename)
+                                               file_hash)
 
                 if not signature == self.exe_signature:
                     self.restore_file()
@@ -234,9 +234,9 @@ class Updater(sys_manager.ProcessManagement):
 
             if not self.signature_check_disable_config == self.signature_check_disable_key:
                 size_file = self.get_size_file(self.zip_path)
-                signature = self.sign_metadata(int(size_file / len(self.zip_name)), size_file,
-                                               self.zip_name,
-                                               "originalfilename")
+                file_hash = self.file_sha256(os.path.abspath(self.zip_path))
+                signature = self.sign_metadata(int(size_file / len(self.zip_name)), size_file, self.zip_name, file_hash)
+
                 if not signature == self.zip_signature:
                     logger.updater.warn(f"Zip-архив '{self.zip_name}' не прошёл проверку подлинности")
                     shutil.rmtree(os.path.dirname(self.manifest_file))
@@ -264,6 +264,9 @@ class Updater(sys_manager.ProcessManagement):
                         self.clear_temp()
                         os._exit(1)
             else:
+                logger.updater.info("Начато обновление")
+                self.upgrade("..\\", attempt=1)
+
                 if self.action_completion == True:
                     self.action_run(self.complete_script, main_file)
         except Exception:
@@ -307,11 +310,11 @@ class Updater(sys_manager.ProcessManagement):
 
                         size_file = self.get_size_file(temp_exe_file)
                         temp_file_version = self.get_exe_version(temp_exe_file)
-                        originalfilename = self.get_file_metadata(temp_exe_file, "OriginalFilename")
+                        file_hash = self.file_sha256(os.path.abspath(temp_exe_file))
 
                         if not self.signature_check_disable_config == self.signature_check_disable_key:
-                            signature = self.sign_metadata(temp_file_version, size_file, self.exe_name,
-                                                           originalfilename)
+                            signature = self.sign_metadata(temp_file_version, size_file, self.exe_name, file_hash)
+
                             if not signature == self.exe_signature:
                                 logger.updater.warn(f"Файл '{self.exe_name}' не прошёл проверку подлинности")
                                 shutil.rmtree(os.path.dirname(self.manifest_file))

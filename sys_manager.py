@@ -54,7 +54,7 @@ class ResourceManagement:
             result = win32api.GetFileVersionInfo(file_path, stringfileinfo)
             logger.updater.debug(f"Успешно получено значение поля '{field}' для файла '{file_path}': '{result}'")
         except Exception:
-            logger.updater.error(f"Не удалось получить описание файла на ftp-сервре", exc_info=True)
+            logger.updater.error(f"Не удалось получить описание файла на ftp-сервере", exc_info=True)
             result = "unknown"
         return result
 
@@ -115,7 +115,25 @@ class ResourceManagement:
             self.restore_file()
             raise
 
+    def file_sha256(self, path, chunk_size=1024 * 1024):
+        sha256 = hashlib.sha256()
+        logger.updater.debug(f"Вычисление SHA-256 для файла: '{path}'")
+        try:
+            with open(path, "rb") as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    sha256.update(chunk)
+            file_hash = str(sha256.hexdigest())
+            logger.updater.debug(f"SHA-256 успешно вычислен: {file_hash}")
+            return file_hash
+        except Exception:
+            logger.updater.error(f"Не удалось вычислить SHA-256 для файла: '{path}'", exc_info=True)
+            return None
+
     def clear_temp(self):
+        #pass
         try:
             main_file = os.path.abspath(sys.argv[0])
             temp_dir = os.path.dirname(main_file)
@@ -179,10 +197,14 @@ class ResourceManagement:
 
         try:
             version_exe = self.get_exe_version(self.exe_name)
-            originalfilename_exe = self.get_file_metadata(self.exe_name, "OriginalFilename")
             size_exe = self.get_size_file(self.exe_name)
 
-            signed_exe = signed(key, version_exe, size_exe, self.exe_name, originalfilename_exe)
+            file_hash = self.file_sha256(os.path.abspath(self.exe_name))
+            if not file_hash:
+                logger.updater.warning("'manifest.json' сформирован не будет")
+                return
+
+            signed_exe = signed(key, version_exe, size_exe, self.exe_name, file_hash)
 
             try:
                 file_stats = os.stat(zip_name)
@@ -193,8 +215,12 @@ class ResourceManagement:
                 zip_file = False
 
             if zip_file:
-                signed_zip = signed(key, int(size_zip / len(zip_name)), size_zip, zip_name,
-                                           "originalfilename")
+                file_hash = self.file_sha256(os.path.abspath(zip_name))
+                if not file_hash:
+                    logger.updater.warning("'manifest.json' сформирован не будет")
+                    return
+                
+                signed_zip = signed(key, int(size_zip / len(zip_name)), size_zip, zip_name, file_hash)
 
                 manifest_data = {
                     self.exe_name: {

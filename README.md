@@ -119,7 +119,7 @@
 При сборке желательно явно указать некоторые импорты, команда выглядит так:
 
 ```bash
-py -3.8 -m PyInstaller --hidden-import cryptography.fernet --onefile --noconsole --version-file=version.txt --icon=favicon.ico ftpupdater.py
+py -3.8 -m PyInstaller --hidden-import cryptography.fernet --onefile --noconsole --icon=favicon.ico ftpupdater.py
 ```
 
 Параметр **`--onefile`** является обязательным.
