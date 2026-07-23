@@ -38,8 +38,8 @@ config_data = {
     },
     "logs": {
         "level": "info",
-        "path": "..\\logs",
-        "clear_days": 14
+        "path": "logs",
+        "clear_days": 2
     }
 }
 

@@ -6,12 +6,23 @@ import logger
 import update_flow
 
 
-def build_forwarded_upgrade_args(command=None, gui=False):
+def build_forwarded_upgrade_args(
+        command=None,
+        gui=False,
+        logs_dir=None,
+        logs_level=None,
+        logs_clear=None):
     forwarded_args = ["--upgrade"]
     if command is not None:
         forwarded_args.extend(["--cmd", command])
     if gui:
         forwarded_args.append("--gui")
+    if logs_dir is not None:
+        forwarded_args.extend(["--logs-dir", logs_dir])
+    if logs_level is not None:
+        forwarded_args.extend(["--logs-level", logs_level])
+    if logs_clear is not None:
+        forwarded_args.extend(["--logs-clear", str(logs_clear)])
     return forwarded_args
 
 

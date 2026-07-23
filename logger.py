@@ -4,6 +4,7 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
 import about
+import log_arguments
 
 class StdoutRedirectHandler(logging.StreamHandler):
     def __init__(self):
@@ -26,6 +27,68 @@ def is_gui_mode():
     return "--gui" in sys.argv
 
 
+def _logs_section(config):
+    if not isinstance(config, dict):
+        return {}
+
+    logs = config.get("logs", {})
+    if isinstance(logs, dict):
+        return logs
+    return {}
+
+
+def _normalize_path(path):
+    return os.path.normpath(os.path.expandvars(os.path.expanduser(path)))
+
+
+def _config_path(logs_config):
+    value = logs_config.get("path", log_arguments.DEFAULT_LOGS_DIR)
+    if not isinstance(value, (str, os.PathLike)):
+        value = log_arguments.DEFAULT_LOGS_DIR
+    return os.fspath(value)
+
+
+def _config_clear_days(logs_config):
+    try:
+        days = int(logs_config.get("clear_days", log_arguments.DEFAULT_LOGS_CLEAR_DAYS))
+        if days < 0:
+            raise ValueError
+        return days
+    except Exception:
+        return log_arguments.DEFAULT_LOGS_CLEAR_DAYS
+
+
+def _resolve_clear_days(logs_config, cli_value):
+    if cli_value is not None:
+        try:
+            days = int(cli_value)
+            if days >= 0:
+                return days
+        except Exception:
+            pass
+
+    return _config_clear_days(logs_config)
+
+
+def _resolve_log_level(logs_config, cli_value):
+    if cli_value is not None:
+        cli_level = log_arguments.normalize_log_level(cli_value, default=None)
+        if cli_level is not None:
+            return cli_level
+
+    return log_arguments.normalize_log_level(
+        logs_config.get("level", log_arguments.DEFAULT_LOGS_LEVEL)
+    )
+
+
+def _resolve_log_folder_path(logs_config, cli_value):
+    if cli_value is not None:
+        return _normalize_path(cli_value)
+
+    log_folder = os.path.expandvars(os.path.expanduser(_config_path(logs_config)))
+    return _normalize_path(os.path.join(about.work_directory, log_folder))
+
+
 def logger(file_name, with_console=False):
     import configs
 
@@ -44,29 +107,20 @@ def logger(file_name, with_console=False):
         "CRITICAL": logging.CRITICAL
     }
 
+    config = None
+    cli_args = log_arguments.parse_early_logging_arguments()
+
     try:
         config_name = "updater.json"
         config = configs.read_config_file(config_name, create=True)
     except:
         pass
 
-    try: days = int(config.get("logs", {}).get("clear_days", 7))
-    except Exception: days = 7
-
-
-    try: log_folder = config.get("logs", {}).get("path", "..\\logs")
-    except Exception: log_folder = "..\\logs"
-
-    log_folder_path = os.path.join(about.work_directory, log_folder)
-
-    if not os.path.exists(log_folder_path):
-        os.makedirs(log_folder_path)
-
-    try: log_level = config.get("logs", {}).get('level', 'INFO').upper()  # INFO будет значением по умолчанию
-    except: log_level = "INFO"
-
-    if log_level not in LOG_LEVELS:
-        log_level = "INFO"
+    logs_config = _logs_section(config)
+    days = _resolve_clear_days(logs_config, cli_args.logs_clear)
+    log_folder_path = _resolve_log_folder_path(logs_config, cli_args.logs_dir)
+    os.makedirs(log_folder_path, exist_ok=True)
+    log_level = _resolve_log_level(logs_config, cli_args.logs_level)
 
     # Создаем логгер
     logger = logging.getLogger(file_name)
@@ -74,7 +128,7 @@ def logger(file_name, with_console=False):
     logger.propagate = False
 
     formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s')
-    file_log_path = f"{log_folder_path}\\{file_name}.log"
+    file_log_path = os.path.join(log_folder_path, f"{file_name}.log")
 
     # Проверяем, не был ли уже добавлен файловый обработчик для этого логгера
     file_handler = None
@@ -104,7 +158,7 @@ def logger(file_name, with_console=False):
 
     # Проверяем, нужно ли создать новый файл лога
     current_date = datetime.now().date()
-    log_file_path = f"{log_folder_path}/{file_name}.log"
+    log_file_path = os.path.join(log_folder_path, f"{file_name}.log")
 
     if os.path.exists(log_file_path):
         # Получаем дату последней модификации файла

@@ -11,6 +11,7 @@ import time
 import shutil
 import update_flow
 import update_scenarios
+import log_arguments
 
 
 def parse_update_mode_arguments(argv=None):
@@ -20,10 +21,23 @@ def parse_update_mode_arguments(argv=None):
     mode_group.add_argument("--upgrade", action="store_true")
     parser.add_argument("--cmd")
     parser.add_argument("--gui", action="store_true")
+    parser.add_argument("--logs-dir", dest="logs_dir")
+    parser.add_argument(
+        "--logs-level",
+        dest="logs_level",
+        type=log_arguments.parse_logs_level_cli
+    )
+    parser.add_argument(
+        "--logs-clear",
+        dest="logs_clear",
+        type=log_arguments.parse_logs_clear_cli
+    )
 
     args, _ = parser.parse_known_args(argv)
     if (args.cmd is not None or args.gui) and not args.upgrade:
         parser.error("--cmd and --gui are allowed only with --upgrade")
+    if log_arguments.has_logging_overrides(args) and not (args.check or args.upgrade):
+        parser.error("--logs-dir, --logs-level and --logs-clear are allowed only with --check or --upgrade")
     return args
 
 def checking_launch_arguments():
@@ -631,7 +645,10 @@ if __name__ == "__main__":
                 temp_dir,
                 forwarded_args=update_scenarios.build_forwarded_upgrade_args(
                     command=args.cmd,
-                    gui=args.gui
+                    gui=args.gui,
+                    logs_dir=args.logs_dir,
+                    logs_level=args.logs_level,
+                    logs_clear=args.logs_clear
                 )
             )
         else:
