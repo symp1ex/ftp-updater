@@ -47,8 +47,16 @@ def run_check_mode(updater, http_connection, ftp_connection, application_directo
     )
     updater.clear_update_resources()
 
-    sys.stdout.write("true\n" if has_update else "false\n")
-    sys.stdout.flush()
+    try:
+        sys.stdout.write("true\n" if has_update else "false\n")
+        sys.stdout.flush()
+    except (BrokenPipeError, OSError, ValueError):
+        # Родительское приложение могло закрыться,
+        # поэтому передать результат уже некому.
+        logger.updater.info(
+            "The update check result could not be sent because "
+            "the parent application closed the output channel"
+        )
     os._exit(0)
 
 
