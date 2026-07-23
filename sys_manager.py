@@ -32,17 +32,17 @@ class ResourceManagement:
 
     def read_manifest(self):
         self.manifest = configs.read_config_file(self.manifest_file)
-        logger.updater.debug(f"Получены данные из файла '{os.path.abspath(self.manifest_file)}': {self.manifest}")
+        logger.updater.debug(f"Data read from file '{os.path.abspath(self.manifest_file)}': {self.manifest}")
 
     def get_exe_version(self, file_path):
         try:
             info = win32api.GetFileVersionInfo(file_path, '\\')
             version = info['FileVersionMS'] >> 16, info['FileVersionMS'] & 0xFFFF, info['FileVersionLS'] >> 16, info[
                 'FileVersionLS'] & 0xFFFF
-            logger.updater.debug(f"Получены метаданные файла '{os.path.abspath(file_path)}': {info}")
+            logger.updater.debug(f"File metadata read from '{os.path.abspath(file_path)}': {info}")
             return '.'.join(map(str, version))
         except Exception:
-            logger.updater.error(f"Не удалось проверить версию файла: '{os.path.abspath(file_path)}'", exc_info=True)
+            logger.updater.error(f"Failed to check file version: '{os.path.abspath(file_path)}'", exc_info=True)
             self.clear_temp()
             os._exit(1)
 
@@ -52,9 +52,9 @@ class ResourceManagement:
             stringfileinfo = u'\\StringFileInfo\\%04X%04X\\%s' % (
             language, codepage, field)  # конкретное поле LegalCopyright
             result = win32api.GetFileVersionInfo(file_path, stringfileinfo)
-            logger.updater.debug(f"Успешно получено значение поля '{field}' для файла '{file_path}': '{result}'")
+            logger.updater.debug(f"Successfully read field '{field}' for file '{file_path}': '{result}'")
         except Exception:
-            logger.updater.error(f"Не удалось получить описание файла на ftp-сервере", exc_info=True)
+            logger.updater.error(f"Failed to get the file description from the FTP server", exc_info=True)
             result = "unknown"
         return result
 
@@ -62,10 +62,10 @@ class ResourceManagement:
         try:
             file_stats = os.stat(file_path)
             size = file_stats[stat.ST_SIZE]
-            logger.updater.debug(f"Размер загруженного файла '{file_path}': {size}")
+            logger.updater.debug(f"Downloaded file size '{file_path}': {size}")
             return size
         except Exception:
-            logger.updater.error(f"Не удалось получить размер файла: '{os.path.abspath(file_path)}'", exc_info=True)
+            logger.updater.error(f"Failed to get file size: '{os.path.abspath(file_path)}'", exc_info=True)
             self.clear_temp()
             os._exit(1)
 
@@ -77,12 +77,12 @@ class ResourceManagement:
             # Прямая проверка ключа
             if key in self.manifest:
                 self.zip_name = key
-                logger.updater.debug(f"Ключ '{key}' найден в '{self.manifest_file}'")
+                logger.updater.debug(f"Key '{key}' found in '{self.manifest_file}'")
                 return True
-            logger.updater.debug(f"Ключ '{key}' не найден в '{self.manifest_file}'")
+            logger.updater.debug(f"Key '{key}' not found in '{self.manifest_file}'")
             return False
         except Exception:
-            logger.updater.error(f"Ошибка при поиске ключа '{key}' в {self.manifest_file}", exc_info=True)
+            logger.updater.error(f"Error while searching for key '{key}' in {self.manifest_file}", exc_info=True)
             return False
 
     def restore_file(self):
@@ -92,9 +92,9 @@ class ResourceManagement:
             time.sleep(1)
             os.rename(self.temp_old_file, self.old_file)
             time.sleep(1)
-            logger.updater.info(f"Резервная копия файла '{os.path.abspath(self.old_file)}' успешно восстановлена")
+            logger.updater.info(f"Backup of file '{os.path.abspath(self.old_file)}' was successfully restored")
         except Exception:
-            logger.updater.critical(f"Не удалось восстановить резервную капию файла '{os.path.abspath(self.old_file)}'",
+            logger.updater.critical(f"Failed to restore backup of file '{os.path.abspath(self.old_file)}'",
                                     exc_info=True)
 
     def unzip_and_get_files(self, extract_path):
@@ -107,17 +107,17 @@ class ResourceManagement:
                     if not file_info.filename.endswith('/'):  # Пропускаем директории
                         self.zip_files_list.append(file_info.filename)
                 # Распаковываем архив
-                logger.updater.debug(f"Получен список файлов в архиве: '{self.zip_files_list}'")
+                logger.updater.debug(f"File list read from the archive: '{self.zip_files_list}'")
                 zip_ref.extractall(extract_path)
-                logger.updater.info(f"Zip-архив '{self.zip_path}' успешно распакован в '{os.path.abspath(extract_path)}'")
+                logger.updater.info(f"ZIP archive '{self.zip_path}' was successfully extracted to '{os.path.abspath(extract_path)}'")
         except Exception:
-            logger.updater.error(f"Ошибка при распаковке архива '{self.zip_path}'", exc_info=True)
+            logger.updater.error(f"Error while extracting archive '{self.zip_path}'", exc_info=True)
             self.restore_file()
             raise
 
     def file_sha256(self, path, chunk_size=1024 * 1024):
         sha256 = hashlib.sha256()
-        logger.updater.debug(f"Вычисление SHA-256 для файла: '{path}'")
+        logger.updater.debug(f"Calculating SHA-256 for file: '{path}'")
         try:
             with open(path, "rb") as f:
                 while True:
@@ -126,10 +126,10 @@ class ResourceManagement:
                         break
                     sha256.update(chunk)
             file_hash = str(sha256.hexdigest())
-            logger.updater.debug(f"SHA-256 успешно вычислен: {file_hash}")
+            logger.updater.debug(f"SHA-256 calculated successfully: {file_hash}")
             return file_hash
         except Exception:
-            logger.updater.error(f"Не удалось вычислить SHA-256 для файла: '{path}'", exc_info=True)
+            logger.updater.error(f"Failed to calculate SHA-256 for file: '{path}'", exc_info=True)
             return None
 
     def clear_temp(self):
@@ -137,14 +137,21 @@ class ResourceManagement:
         try:
             main_file = os.path.abspath(sys.argv[0])
             temp_dir = os.path.dirname(main_file)
+            if os.path.basename(temp_dir).lower() != "_temp":
+                resources_dir = os.path.dirname(self.manifest_file)
+                if os.path.exists(resources_dir):
+                    import shutil
+                    shutil.rmtree(resources_dir)
+                    logger.updater.debug(f"Temporary directory '{resources_dir}' deleted")
+                return
             # Команда для удаления файла
             command = f"timeout /t 7 > nul && rd /q/s \"{temp_dir}\""
             working_directory = os.path.dirname(os.path.dirname(temp_dir))
             # Выполняем команду в отдельном процессе
             subprocess.Popen(command, shell=True, cwd=working_directory)
-            logger.updater.debug(f"Отправлена команда на очистку временной директории: '{os.path.abspath(temp_dir)}'")
+            logger.updater.debug(f"Command sent to clean up the temporary directory: '{os.path.abspath(temp_dir)}'")
         except Exception:
-            logger.updater.error(f'Не удалось очистить временную директорию', exc_info=True)
+            logger.updater.error(f'Failed to clean up the temporary directory', exc_info=True)
             os._exit(1)
 
     def sign_metadata(self, key1, key2, key3, key4):
@@ -153,7 +160,7 @@ class ResourceManagement:
             signature = hmac.new(self.signature_key, metadata.encode(), hashlib.sha256).hexdigest()
             return signature
         except Exception:
-            logger.updater.error(f"Не удалось получить подпись из загруженного файла", exc_info=True)
+            logger.updater.error(f"Failed to get the signature from the downloaded file", exc_info=True)
             self.clear_temp()
             os._exit(1)
 
@@ -164,7 +171,7 @@ class ResourceManagement:
             decrypted_data = cipher.decrypt(encrypted_data).decode()
             return decrypted_data
         except Exception:
-            logger.updater.error(f"Не пройдена аутентификация на сервере", exc_info=True)
+            logger.updater.error(f"Server authentication failed", exc_info=True)
             self.clear_temp()
             os._exit(1)
 
@@ -174,7 +181,7 @@ class ResourceManagement:
             encrypted_data = cipher.encrypt(data.encode())
             return encrypted_data
         except Exception:
-            logger.updater.error("Не удалось зашифровать данные", exc_info=True)
+            logger.updater.error("Failed to encrypt data", exc_info=True)
             os._exit(1)
 
     def create_manifest(self, key):
@@ -184,7 +191,7 @@ class ResourceManagement:
                 manifest_key_bytes = manifest_key.encode('utf-8')
                 signature = hmac.new(manifest_key_bytes, metadata.encode(), hashlib.sha256).hexdigest()
             except Exception:
-                logger.updater.error("Не удалось получить подпись для файла", exc_info=True)
+                logger.updater.error("Failed to get the signature for the file", exc_info=True)
                 signature = "None"
             return signature
 
@@ -192,7 +199,7 @@ class ResourceManagement:
             exe_name_0 = self.exe_name.split('.')[0]  # получаем 'file'
             zip_name = f"{exe_name_0}.zip"  # создаем новую строку 'file.zip'
         except Exception:
-            logger.updater.error("Не удалось получить имя архива", exc_info=True)
+            logger.updater.error("Failed to get the archive name", exc_info=True)
             zip_name = False
 
         try:
@@ -201,7 +208,7 @@ class ResourceManagement:
 
             file_hash = self.file_sha256(os.path.abspath(self.exe_name))
             if not file_hash:
-                logger.updater.warning("'manifest.json' сформирован не будет")
+                logger.updater.warning("'manifest.json' will not be generated")
                 return
 
             signed_exe = signed(key, version_exe, size_exe, self.exe_name, file_hash)
@@ -211,13 +218,13 @@ class ResourceManagement:
                 size_zip = file_stats[stat.ST_SIZE]
                 zip_file = True
             except Exception:
-                logger.updater.warning(f"Архив {zip_name} не найден")
+                logger.updater.warning(f"Archive {zip_name} not found")
                 zip_file = False
 
             if zip_file:
                 file_hash = self.file_sha256(os.path.abspath(zip_name))
                 if not file_hash:
-                    logger.updater.warning("'manifest.json' сформирован не будет")
+                    logger.updater.warning("'manifest.json' will not be generated")
                     return
                 
                 signed_zip = signed(key, int(size_zip / len(zip_name)), size_zip, zip_name, file_hash)
@@ -241,13 +248,13 @@ class ResourceManagement:
 
             configs.write_json_file("manifest.json", manifest_data)
         except Exception:
-            logger.updater.error("Не удалось создать 'manifest.json'", exc_info=True)
+            logger.updater.error("Failed to create 'manifest.json'", exc_info=True)
             os._exit(1)
 
     def save_http_config(self, url):
         try:
             if not url:
-                logger.updater.warning("Адрес сервера не указан")
+                logger.updater.warning("Server address is not specified")
                 os._exit(1)
 
             encrypted_url = self.encrypt_data(url).decode()
@@ -260,19 +267,19 @@ class ResourceManagement:
                 self.config
             )
 
-            logger.updater.info("URL успешно сохранён в конфигурации")
+            logger.updater.info("URL was successfully saved in the configuration")
             os._exit(0)
 
         except Exception:
             logger.updater.error(
-                "Не удалось сохранить HTTP URL",
+                "Failed to save HTTP URL",
                 exc_info=True
             )
             os._exit(1)
 
     def save_ftp_config(self, ftp_server=None, ftp_user=None, ftp_pass=None):
         try:
-            logger.updater.debug("Запущен режим настройки FTP")
+            logger.updater.debug("FTP setup mode started")
 
             if ftp_server:
                 self.config["ftp"]["ftp_server"] = ftp_server
@@ -293,11 +300,11 @@ class ResourceManagement:
                 self.config
             )
 
-            logger.updater.info("FTP-конфигурация успешно сохранена")
+            logger.updater.info("FTP configuration was successfully saved")
 
         except Exception:
             logger.updater.error(
-                "Не удалось сохранить FTP-конфигурацию",
+                "Failed to save FTP configuration",
                 exc_info=True
             )
             os._exit(1)
@@ -321,15 +328,15 @@ class ProcessManagement(ResourceManagement):
         try:
             file_path = os.path.join(os.path.dirname(main_file), "..\\", file_name)
         except Exception:
-            logger.updater.error(f"Не удалось определить путь к '{file_name}'", exc_info=True)
+            logger.updater.error(f"Failed to determine path to '{file_name}'", exc_info=True)
 
         try:
-            logger.updater.info(f"Будет запущен '{os.path.normpath(file_path)}'")
+            logger.updater.info(f"'{os.path.normpath(file_path)}' will be started")
             if timeout:
-                logger.updater.info(f"Продолжение работы через ({self.action_timeout}) секунд")
+                logger.updater.info(f"Work will continue in ({self.action_timeout}) seconds")
             subprocess.Popen(file_path)
         except Exception:
-            logger.updater.error(f"Не удалось запустить '{file_path}'", exc_info=True)
+            logger.updater.error(f"Failed to start '{file_path}'", exc_info=True)
             self.clear_temp()
             os._exit(1)
 
@@ -346,48 +353,55 @@ class ProcessManagement(ResourceManagement):
             )
 
             if result.returncode == 0:
-                logger.updater.debug(f"Процесс '{file_name}' активен")
+                logger.updater.debug(f"Process '{file_name}' is active")
                 return True
             elif result.returncode == 1:
-                logger.updater.debug(f"Процесс '{file_name}' неактивен")
+                logger.updater.debug(f"Process '{file_name}' is inactive")
                 return False
             else:
                 # Если returncode не 0 или 1, это указывает на ошибку выполнения команды
                 logger.updater.warning(
-                    f"Ошибка выполнения команды CMD для процесса '{file_name}'. Код возврата: {result.returncode}",)
+                    f"CMD command execution error for process '{file_name}'. Return code: {result.returncode}",)
                 return None
 
         except FileNotFoundError:
             # Это исключение может возникнуть, если 'cmd.exe' или одна из команд
             # ('tasklist', 'findstr') не найдена в системном PATH.
-            logger.updater.error( f"Команда CMD или ее компоненты (tasklist/findstr) не найдены. "
-                                                 f"Убедитесь, что они доступны в системном PATH.", exc_info=True)
+            logger.updater.error( f"CMD command or its components (tasklist/findstr) were not found. "
+                                                 f"Make sure they are available in the system PATH.", exc_info=True)
             return None
         except Exception:
             logger.updater.error(
-                f"Не удалось получить статус процесса '{file_name}' через CMD (tasklist|findstr)", exc_info=True)
+                f"Failed to get process status for '{file_name}' via CMD (tasklist|findstr)", exc_info=True)
             return None
 
     def check_process_cycle(self, exe_name):
         count_attempt = int(self.action_timeout / 5 + 1)
 
         try:
-            logger.updater.info(f"Проверяем активность процесса '{exe_name}'")
+            logger.updater.info(f"Checking process activity for '{exe_name}'")
             for attempt in range(count_attempt):
                 process_found = self.check_process(exe_name)
 
-                if process_found:
-                    logger.updater.debug(f"Cледующая проверка через (5) секунд.")
+                if process_found is True:
+                    logger.updater.debug(f"Next check in (5) seconds.")
                     time.sleep(5)
                     continue
-                else:
-                    logger.updater.info(f"Процесс '{exe_name}' завершил свою работу или не был запущен")
+
+                if process_found is False:
+                    logger.updater.info(f"Process '{exe_name}' has exited or was not running")
                     return True
+
+                logger.updater.warning(
+                    f"Failed to determine the state of process '{exe_name}'; "
+                    f"the update process will be interrupted"
+                )
+                return False
             logger.updater.warn(
-                f"Процесс '{exe_name}' остаётся активным в течении ({self.action_timeout}) секунд, "
-                f"процесс обновления будет прерван")
+                f"Process '{exe_name}' remains active for ({self.action_timeout}) seconds; "
+                f"the update process will be interrupted")
             return False
         except Exception:
-            logger.updater.error(f"Не удалось отследить состояние процесса '{exe_name}'", exc_info=True)
+            logger.updater.error(f"Failed to track process state for '{exe_name}'", exc_info=True)
             self.clear_temp()
             os._exit(1)

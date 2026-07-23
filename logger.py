@@ -19,8 +19,21 @@ class StdoutRedirectHandler(logging.StreamHandler):
             sys.stdout.write(msg + '\n')
 
 
+def is_check_mode():
+    return "--check" in sys.argv
+
+def is_gui_mode():
+    return "--gui" in sys.argv
+
+
 def logger(file_name, with_console=False):
     import configs
+
+    with_console = (
+        with_console
+        and not is_check_mode()
+        and not is_gui_mode()
+    )
 
     # Словарь для маппинга строковых значений в константы logging
     LOG_LEVELS = {
@@ -58,12 +71,22 @@ def logger(file_name, with_console=False):
     # Создаем логгер
     logger = logging.getLogger(file_name)
     logger.setLevel(LOG_LEVELS[log_level])
+    logger.propagate = False
 
-    # Проверяем, не был ли уже добавлен обработчик для этого логгера
-    if not logger.hasHandlers():
+    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s')
+    file_log_path = f"{log_folder_path}\\{file_name}.log"
+
+    # Проверяем, не был ли уже добавлен файловый обработчик для этого логгера
+    file_handler = None
+    for handler in logger.handlers:
+        if isinstance(handler, TimedRotatingFileHandler):
+            file_handler = handler
+            break
+
+    if file_handler is None:
         # Создаем обработчик для вывода в файл с ротацией
         file_handler = TimedRotatingFileHandler(
-            f"{log_folder_path}\\{file_name}.log",
+            file_log_path,
             when="midnight",         # Ротация в полночь
             interval=1,       # Интервал: 1 день
             backupCount=days,     # Хранить архивы не дольше 7 дней
@@ -72,11 +95,12 @@ def logger(file_name, with_console=False):
         file_handler.setLevel(LOG_LEVELS[log_level])
 
         # Форматтер для настройки формата сообщений
-        formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s')
         file_handler.setFormatter(formatter)
 
         # Добавляем обработчик к логгеру
         logger.addHandler(file_handler)
+    else:
+        file_handler.setLevel(LOG_LEVELS[log_level])
 
     # Проверяем, нужно ли создать новый файл лога
     current_date = datetime.now().date()
@@ -89,14 +113,14 @@ def logger(file_name, with_console=False):
             # Если дата последней модификации меньше текущей, создаем новый файл
             file_handler.doRollover()
 
-        # Добавляем обработчик для вывода на консоль
-        if with_console:
-            #console_handler = logging.StreamHandler() # вывод в стандартный обработчик бибилиотеки
-            console_handler = StdoutRedirectHandler() # в системный вывод
-            console_handler.setLevel(logging.INFO)
-            console_handler.setFormatter(formatter)
-            logger.addHandler(console_handler)
+    # Добавляем обработчик для вывода на консоль
+    if with_console and not any(isinstance(handler, StdoutRedirectHandler) for handler in logger.handlers):
+        #console_handler = logging.StreamHandler() # вывод в стандартный обработчик бибилиотеки
+        console_handler = StdoutRedirectHandler() # в системный вывод
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
     return logger
 
-updater = logger(f"updater", with_console=True)
+updater = logger(f"updater", with_console=not is_check_mode())

@@ -10,4 +10,4 @@ key = base64.urlsafe_b64encode(os.urandom(32))
 # Ключ в виде строки
 key_str = key.decode()
 
-print(f"Сгенерированный ключ: {key_str}")
+print(f"Generated key: {key_str}")

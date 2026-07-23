@@ -50,12 +50,12 @@ def write_json_file(file_name, config, create=False):
             json.dump(config, file, ensure_ascii=False, indent=4)
 
         if create == True:
-            logger.updater.warning(f"Файл '{file_name}' не найден. Будет создан новый файл конфигурации, перезапустите приложение")
+            logger.updater.warning(f"File '{file_name}' was not found. A new configuration file will be created; restart the application")
 
-        logger.updater.info(f"Данные записаны в '{file_name}'")
+        logger.updater.info(f"Data written to '{file_name}'")
         logger.updater.debug(config)
     except Exception:
-        logger.updater.error(f"Не удалось записать данные в '{file_name}'.", exc_info=True)
+        logger.updater.error(f"Failed to write data to '{file_name}'.", exc_info=True)
         os._exit(1)
 
 def read_config_file(json_file, create=False):

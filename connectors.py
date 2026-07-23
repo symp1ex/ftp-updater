@@ -26,8 +26,8 @@ class FtpConnection(sys_manager.ResourceManagement):
     def __init__(self):
         super().__init__()
         self.ftp_server = self.config.get("ftp", {}).get("ftp_server", "")
-        self.ftp_username = self.config["ftp"]["userdata"].get("ftp_username", "")
-        self.ftp_password = self.config["ftp"]["userdata"].get("ftp_password", "")
+        self.ftp_username = self.config.get("ftp", {}).get("userdata", {}).get("ftp_username", "")
+        self.ftp_password = self.config.get("ftp", {}).get("userdata", {}).get("ftp_password", "")
         self.ftp_context = None
 
         try: self.encryption_enabled = int(self.config.get("ftp", {}).get("userdata", {}).get("encryption", 0))
@@ -39,9 +39,9 @@ class FtpConnection(sys_manager.ResourceManagement):
             if self.encryption_enabled == True:
                 self.ftp_username = self.decrypt_data(self.config["ftp"]["userdata"].get("ftp_username"))
                 self.ftp_password = self.decrypt_data(self.config["ftp"]["userdata"].get("ftp_password"))
-                logger.updater.debug("Пользовательские данные для подключения к FTP-серверу успешно расшифрованы")
+                logger.updater.debug("User credentials for connecting to the FTP server were successfully decrypted")
             else:
-                logger.updater.warn("Шифрование пользовательских данных для подключения к FTP-серверу отключено")
+                logger.updater.warn("Encryption of user credentials for connecting to the FTP server is disabled")
 
             self.ftp_context = lambda: FtpContextManager(
                 self.ftp_server,
@@ -49,7 +49,7 @@ class FtpConnection(sys_manager.ResourceManagement):
                 self.ftp_password
             )
         except Exception:
-            logger.updater.error("Не удалось определить тип пользовательских данных для подключения к FTP-серверу",
+            logger.updater.error("Failed to determine the type of user credentials for connecting to the FTP server",
                                  exc_info=True)
             self.clear_temp()
             os._exit(1)
@@ -62,7 +62,7 @@ class FtpConnection(sys_manager.ResourceManagement):
 
             if not os.path.exists(temp_resources_path):
                 os.makedirs(temp_resources_path)
-                logger.updater.debug(f"Создана временная директория для загрузки файлов обновления: '{temp_resources_path}'")
+                logger.updater.debug(f"Created a temporary directory for downloading update files: '{temp_resources_path}'")
 
             # Создание временного файла для загрузки
             local_file_path = os.path.join(temp_resources_path, os.path.basename(remote_file_path))
@@ -73,17 +73,17 @@ class FtpConnection(sys_manager.ResourceManagement):
                     ftp.retrbinary('RETR ' + remote_file_path, local_file.write)
 
             logger.updater.info(
-                f"С FTP-сервера успешно загружен файл '{remote_file_path}' в директорию '{os.path.dirname(local_file_path)}'")
+                f"File '{remote_file_path}' was successfully downloaded from the FTP server to '{os.path.dirname(local_file_path)}'")
             return local_file_path, "ftp"
         except Exception:
             if attempt < max_attempts:
                 logger.updater.warn(
-                    f"Попытка ({attempt}) загрузить файл '{remote_file_path}' с FTP-сервера не удалась. Повторная попытка через ({timeout_update}) секунд...")
+                    f"Attempt ({attempt}) to download file '{remote_file_path}' from the FTP server failed. Retrying in ({timeout_update}) seconds...")
                 attempt += 1
                 time.sleep(timeout_update)
                 return self.download_file(file_name, remote_path, timeout_update, max_attempts, attempt)
             else:
-                logger.updater.error(f"Не удалось загрузить файл '{remote_file_path}' с FTP-сервера после ({max_attempts}) попыток", exc_info=True)
+                logger.updater.error(f"Failed to download file '{remote_file_path}' from the FTP server after ({max_attempts}) attempts", exc_info=True)
                 self.clear_temp()
                 os._exit(1)
 
@@ -106,9 +106,9 @@ class HttpConnection(sys_manager.ResourceManagement):
     def get_url(self):
         if self.encryption_enabled == True:
             self.base_url = self.decrypt_data(self.base_url)
-            logger.updater.debug("Url-адрес для загрузки обновления успешно расшифрован")
+            logger.updater.debug("URL for downloading the update was successfully decrypted")
             return
-        logger.updater.warning("Шифрование url-адреса отключено")
+        logger.updater.warning("URL encryption is disabled")
 
     def download_file(self, file_name, remote_path, timeout_update, max_attempts, attempt):
         temp_resources_path = os.path.dirname(self.manifest_file)
@@ -116,7 +116,7 @@ class HttpConnection(sys_manager.ResourceManagement):
         if not os.path.exists(temp_resources_path):
             os.makedirs(temp_resources_path)
             logger.updater.debug(
-                f"Создана временная директория для загрузки файлов обновления: '{temp_resources_path}'")
+                f"Created a temporary directory for downloading update files: '{temp_resources_path}'")
 
         local_file_path = os.path.join(temp_resources_path, file_name)
 
@@ -126,34 +126,34 @@ class HttpConnection(sys_manager.ResourceManagement):
 
         url = self.base_url + os.path.basename(file_name)
         try:
-            logger.updater.debug(f"Отправляем HTTP-запрос на загрузку файла '{os.path.basename(file_name)}'")
+            logger.updater.debug(f"Sending an HTTP request to download file '{os.path.basename(file_name)}'")
             response = requests.get(url, stream=True)
 
             # Проверяем успешность запроса
             if response.status_code == 200:
-                logger.updater.debug(f"Код ответа: {response.status_code}")
+                logger.updater.debug(f"Response code: {response.status_code}")
                 # Открываем файл для записи в бинарном режиме
                 with open(local_file_path, "wb") as file:
                     for chunk in response.iter_content(chunk_size=8192):
                         file.write(chunk)
-                logger.updater.info(
-                    f"С HTTP-хранилища успешно загружен файл '{os.path.basename(file_name)}' в директорию '{os.path.dirname(local_file_path)}'")
+                logger.updater.debug(
+                    f"File '{os.path.basename(file_name)}' was successfully downloaded from HTTP storage to '{os.path.dirname(local_file_path)}'")
             else:
                 raise Exception(
-                    f"Не удалось загрузить файл '{os.path.basename(file_name)}' с HTTP-хранилища. Код ответа: {response.status_code}")
+                    f"Failed to download file '{os.path.basename(file_name)}' from HTTP storage. Response code: {response.status_code}")
             return local_file_path, "http"
         except Exception:
             if attempt < max_attempts:
                 logger.updater.warn(
-                    f"Попытка ({attempt}) загрузить файл '{os.path.basename(file_name)}' "
-                    f"с HTTP-хранилища не удалась. Повторная попытка через ({timeout_update}) секунд...")
+                    f"Attempt ({attempt}) to download file '{os.path.basename(file_name)}' "
+                    f"from HTTP storage failed. Retrying in ({timeout_update}) seconds...")
                 attempt += 1
                 time.sleep(timeout_update)
                 return self.download_file(file_name, remote_path, timeout_update, max_attempts, attempt)
             else:
                 logger.updater.error(
-                    f"Не удалось загрузить файл '{os.path.basename(file_name)}' с HTTP-хранилища после "
-                    f"({max_attempts}) попыток", exc_info=True)
+                    f"Failed to download file '{os.path.basename(file_name)}' from HTTP storage after "
+                    f"({max_attempts}) attempts", exc_info=True)
 
                 if self.ftp_mirror_update_enabled:
                     ftp_connect = FtpConnection()
