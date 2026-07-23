@@ -3,6 +3,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 from pathlib import Path
+import about
 
 import logger
 from update_flow import ProgressEvent, UpdateResult
@@ -11,7 +12,7 @@ from update_flow import ProgressEvent, UpdateResult
 def run_upgrade_gui(worker, close_callback):
     events = queue.Queue()
     root = tk.Tk()
-    root.title("Updater")
+    root.title(f"Updater v{about.version}")
     root.geometry("540x200")
     root.minsize(540, 200)
     root.maxsize(540, 200)
