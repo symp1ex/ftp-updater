@@ -1,5 +1,5 @@
 import os
 
-version = "0.8.6.8"
+version = "0.8.6.9"
 
 work_directory = os.getcwd()

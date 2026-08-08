@@ -86,7 +86,7 @@ def checking_launch_arguments():
 
         logger.updater.critical(
             f"Usage:\n"
-            f"{exe} --mkey <signature_key> OR\n"
+            f"{exe} --mkey <private_key> OR\n"
             f"{exe} --http <url> OR\n"
             f"{exe} --ftpserver <server>\n"
             f"{exe} --ftpuser <user>\n"
@@ -261,10 +261,15 @@ class Updater(sys_manager.ProcessManagement):
                 temp_file_version = self.get_exe_version(os.path.abspath(self.old_file))
                 file_hash = self.file_sha256(os.path.abspath(self.old_file))
 
-                signature = self.sign_metadata(temp_file_version, size_file, os.path.basename(self.old_file),
-                                               file_hash)
+                signature_valid = self.verify_metadata(
+                    self.exe_signature,
+                    temp_file_version,
+                    size_file,
+                    os.path.basename(self.old_file),
+                    file_hash
+                )
 
-                if not signature == self.exe_signature:
+                if not signature_valid:
                     self.restore_file()
                     raise ValueError(f"The installed file '{os.path.abspath(self.old_file)}' "
                                      f"failed the integrity check and was deleted")
@@ -366,9 +371,15 @@ class Updater(sys_manager.ProcessManagement):
             if not self.signature_check_disable_config == self.signature_check_disable_key:
                 size_file = self.get_size_file(self.zip_path)
                 file_hash = self.file_sha256(os.path.abspath(self.zip_path))
-                signature = self.sign_metadata(int(size_file / len(self.zip_name)), size_file, self.zip_name, file_hash)
+                signature_valid = self.verify_metadata(
+                    self.zip_signature,
+                    int(size_file / len(self.zip_name)),
+                    size_file,
+                    self.zip_name,
+                    file_hash
+                )
 
-                if not signature == self.zip_signature:
+                if not signature_valid:
                     logger.updater.warn(f"ZIP archive '{self.zip_name}' failed authenticity verification")
                     shutil.rmtree(os.path.dirname(self.manifest_file))
                     logger.updater.debug(f"Temporary directory '{os.path.dirname(self.manifest_file)}' deleted")
@@ -506,9 +517,15 @@ class Updater(sys_manager.ProcessManagement):
                         file_hash = self.file_sha256(os.path.abspath(temp_exe_file))
 
                         if not self.signature_check_disable_config == self.signature_check_disable_key:
-                            signature = self.sign_metadata(temp_file_version, size_file, self.exe_name, file_hash)
+                            signature_valid = self.verify_metadata(
+                                self.exe_signature,
+                                temp_file_version,
+                                size_file,
+                                self.exe_name,
+                                file_hash
+                            )
 
-                            if not signature == self.exe_signature:
+                            if not signature_valid:
                                 logger.updater.warn(f"File '{self.exe_name}' failed authenticity verification")
                                 self.clear_update_resources()
                                 result = update_flow.UpdateResult(

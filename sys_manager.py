@@ -2,19 +2,20 @@ import about
 import configs
 import logger
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from cryptography.exceptions import InvalidSignature
 import os
 import time
 import subprocess
 import sys
 import hashlib
-import hmac
 import win32api
 import stat
 import zipfile
 
 class ResourceManagement:
     signature_check_disable_key = "aTdW<<9XyeqNM*LS2<"
-    signature_key = b'R%Q480WMofRwn16L'
+    signature_public_key = bytes.fromhex("4d37cceab50a53ad61f43535754423cd1ecf9ff0c98ebf4ee8db9ade72df9d51")
     crypto_key = b't_qxC_HN04Tiy1ish2P27ROYSJt_m7_FE2JT6gYngOM='
 
     config_file = os.path.join(about.work_directory, "updater.json")
@@ -154,13 +155,29 @@ class ResourceManagement:
             logger.updater.error(f'Failed to clean up the temporary directory', exc_info=True)
             os._exit(1)
 
-    def sign_metadata(self, key1, key2, key3, key4):
+    def verify_metadata(self, signature, key1, key2, key3, key4):
         try:
             metadata = f"{key1}:{key2}:{key3}:{key4}"
-            signature = hmac.new(self.signature_key, metadata.encode(), hashlib.sha256).hexdigest()
-            return signature
+
+            public_key = Ed25519PublicKey.from_public_bytes(
+                self.signature_public_key
+            )
+
+            public_key.verify(
+                bytes.fromhex(signature),
+                metadata.encode()
+            )
+
+            return True
+
+        except InvalidSignature:
+            return False
+
         except Exception:
-            logger.updater.error(f"Failed to get the signature from the downloaded file", exc_info=True)
+            logger.updater.error(
+                "Failed to verify the signature of the downloaded file",
+                exc_info=True
+            )
             self.clear_temp()
             os._exit(1)
 
@@ -185,11 +202,23 @@ class ResourceManagement:
             os._exit(1)
 
     def create_manifest(self, key):
-        def signed(manifest_key, key1, key2, key3, key4):
+        try:
+            private_key = Ed25519PrivateKey.from_private_bytes(
+                bytes.fromhex(key)
+            )
+        except Exception:
+            logger.updater.error(
+                "Failed to read the private signature key",
+                exc_info=True
+            )
+            os._exit(1)
+
+        def signed(key1, key2, key3, key4):
             try:
                 metadata = f"{key1}:{key2}:{key3}:{key4}"
-                manifest_key_bytes = manifest_key.encode('utf-8')
-                signature = hmac.new(manifest_key_bytes, metadata.encode(), hashlib.sha256).hexdigest()
+                signature = private_key.sign(
+                    metadata.encode()
+                ).hex()
             except Exception:
                 logger.updater.error("Failed to get the signature for the file", exc_info=True)
                 signature = "None"
@@ -211,7 +240,7 @@ class ResourceManagement:
                 logger.updater.warning("'manifest.json' will not be generated")
                 return
 
-            signed_exe = signed(key, version_exe, size_exe, self.exe_name, file_hash)
+            signed_exe = signed(version_exe, size_exe, self.exe_name, file_hash)
 
             try:
                 file_stats = os.stat(zip_name)
@@ -226,8 +255,8 @@ class ResourceManagement:
                 if not file_hash:
                     logger.updater.warning("'manifest.json' will not be generated")
                     return
-                
-                signed_zip = signed(key, int(size_zip / len(zip_name)), size_zip, zip_name, file_hash)
+
+                signed_zip = signed(int(size_zip / len(zip_name)), size_zip, zip_name, file_hash)
 
                 manifest_data = {
                     self.exe_name: {
