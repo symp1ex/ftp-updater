@@ -19,7 +19,7 @@ config_data = {
         "http_update": {
             "enabled": False,
             "ftp_mirror_update": False,
-            "data connection": {
+            "data_connection": {
                 "encryption": False,
                 "url": "http://server.com/updater/"
             }
