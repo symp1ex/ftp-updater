@@ -101,19 +101,24 @@ def run_upgrade_mode(updater, main_file, temp_dir, command=None, gui=False):
     if gui:
         import update_gui
 
-        def worker(progress_callback):
+        def worker(progress_callback, cancel_event):
             return updater.main(
                 main_file,
                 temp_dir,
                 progress_callback=progress_callback,
                 exit_on_complete=False,
-                cleanup_on_complete=False
+                cleanup_on_complete=False,
+                cancel_event=cancel_event
             )
 
         def close_callback(result):
             exit_code = 0
             try:
-                if result is None or not result.success:
+                if result is None:
+                    exit_code = 1
+                elif result.cancelled:
+                    exit_code = 0
+                elif not result.success:
                     exit_code = 1
                 elif result.updated and command:
                     if not run_exit_command(updater, command, application_directory):

@@ -2,8 +2,8 @@ import logger
 import sys_manager
 import os
 import ftplib
-import time
 import requests
+import update_flow
 
 class FtpContextManager:
     def __init__(self, server, username, password):
@@ -19,7 +19,11 @@ class FtpContextManager:
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.ftp:
-            try: self.ftp.quit()
+            try:
+                if exc_type is not None and issubclass(exc_type, update_flow.UpdateCancelled):
+                    self.ftp.close()
+                else:
+                    self.ftp.quit()
             except: pass
 
 class FtpConnection(sys_manager.ResourceManagement):
@@ -54,10 +58,18 @@ class FtpConnection(sys_manager.ResourceManagement):
             self.clear_temp()
             os._exit(1)
 
-    def download_file(self, file_name, remote_path, timeout_update, max_attempts, attempt):
+    def download_file(
+            self,
+            file_name,
+            remote_path,
+            timeout_update,
+            max_attempts,
+            attempt,
+            cancel_event=None):
         # путь до файла на фтп с которым сравнивается версия и подпись
         remote_file_path = f"{remote_path}/{os.path.basename(file_name)}"
         try:
+            update_flow.check_cancelled(cancel_event)
             temp_resources_path = os.path.dirname(self.manifest_file)
 
             if not os.path.exists(temp_resources_path):
@@ -70,18 +82,36 @@ class FtpConnection(sys_manager.ResourceManagement):
             # Загрузка файла с FTP сервера
             with self.ftp_context() as ftp:
                 with open(local_file_path, 'wb') as local_file:
-                    ftp.retrbinary('RETR ' + remote_file_path, local_file.write)
+                    def write_chunk(chunk):
+                        update_flow.check_cancelled(cancel_event)
+                        local_file.write(chunk)
 
+                    ftp.retrbinary('RETR ' + remote_file_path, write_chunk)
+
+            update_flow.check_cancelled(cancel_event)
             logger.updater.info(
                 f"File '{remote_file_path}' was successfully downloaded from the FTP server to '{os.path.dirname(local_file_path)}'")
             return local_file_path, "ftp"
+        except update_flow.UpdateCancelled:
+            try:
+                os.remove(local_file_path)
+            except (FileNotFoundError, UnboundLocalError):
+                pass
+            raise
         except Exception:
             if attempt < max_attempts:
                 logger.updater.warn(
                     f"Attempt ({attempt}) to download file '{remote_file_path}' from the FTP server failed. Retrying in ({timeout_update}) seconds...")
                 attempt += 1
-                time.sleep(timeout_update)
-                return self.download_file(file_name, remote_path, timeout_update, max_attempts, attempt)
+                update_flow.wait_or_cancel(cancel_event, timeout_update)
+                return self.download_file(
+                    file_name,
+                    remote_path,
+                    timeout_update,
+                    max_attempts,
+                    attempt,
+                    cancel_event=cancel_event
+                )
             else:
                 logger.updater.error(f"Failed to download file '{remote_file_path}' from the FTP server after ({max_attempts}) attempts", exc_info=True)
                 self.clear_temp()
@@ -110,7 +140,14 @@ class HttpConnection(sys_manager.ResourceManagement):
             return
         logger.updater.warning("URL encryption is disabled")
 
-    def download_file(self, file_name, remote_path, timeout_update, max_attempts, attempt):
+    def download_file(
+            self,
+            file_name,
+            remote_path,
+            timeout_update,
+            max_attempts,
+            attempt,
+            cancel_event=None):
         temp_resources_path = os.path.dirname(self.manifest_file)
 
         if not os.path.exists(temp_resources_path):
@@ -125,9 +162,12 @@ class HttpConnection(sys_manager.ResourceManagement):
             self.base_url += '/'
 
         url = self.base_url + os.path.basename(file_name)
+        response = None
         try:
+            update_flow.check_cancelled(cancel_event)
             logger.updater.debug(f"Sending an HTTP request to download file '{os.path.basename(file_name)}'")
             response = requests.get(url, stream=True)
+            update_flow.check_cancelled(cancel_event)
 
             # Проверяем успешность запроса
             if response.status_code == 200:
@@ -135,21 +175,42 @@ class HttpConnection(sys_manager.ResourceManagement):
                 # Открываем файл для записи в бинарном режиме
                 with open(local_file_path, "wb") as file:
                     for chunk in response.iter_content(chunk_size=8192):
-                        file.write(chunk)
+                        update_flow.check_cancelled(cancel_event)
+                        if chunk:
+                            file.write(chunk)
+                update_flow.check_cancelled(cancel_event)
                 logger.updater.debug(
                     f"File '{os.path.basename(file_name)}' was successfully downloaded from HTTP storage to '{os.path.dirname(local_file_path)}'")
             else:
                 raise Exception(
                     f"Failed to download file '{os.path.basename(file_name)}' from HTTP storage. Response code: {response.status_code}")
             return local_file_path, "http"
+        except update_flow.UpdateCancelled:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+            try:
+                os.remove(local_file_path)
+            except FileNotFoundError:
+                pass
+            raise
         except Exception:
             if attempt < max_attempts:
                 logger.updater.warn(
                     f"Attempt ({attempt}) to download file '{os.path.basename(file_name)}' "
                     f"from HTTP storage failed. Retrying in ({timeout_update}) seconds...")
                 attempt += 1
-                time.sleep(timeout_update)
-                return self.download_file(file_name, remote_path, timeout_update, max_attempts, attempt)
+                update_flow.wait_or_cancel(cancel_event, timeout_update)
+                return self.download_file(
+                    file_name,
+                    remote_path,
+                    timeout_update,
+                    max_attempts,
+                    attempt,
+                    cancel_event=cancel_event
+                )
             else:
                 logger.updater.error(
                     f"Failed to download file '{os.path.basename(file_name)}' from HTTP storage after "
@@ -159,7 +220,13 @@ class HttpConnection(sys_manager.ResourceManagement):
                     ftp_connect = FtpConnection()
                     ftp_connect.get_ftp_userdata()
                     local_file_path, update_method = ftp_connect.download_file(
-                        file_name, remote_path, timeout_update, max_attempts, attempt=1)
+                        file_name,
+                        remote_path,
+                        timeout_update,
+                        max_attempts,
+                        attempt=1,
+                        cancel_event=cancel_event
+                    )
                     return local_file_path, update_method
                 else:
                     self.clear_temp()

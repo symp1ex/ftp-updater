@@ -7,7 +7,6 @@ import argparse
 import subprocess
 import sys
 import os
-import time
 import shutil
 import update_flow
 import update_scenarios
@@ -111,6 +110,7 @@ class Updater(sys_manager.ProcessManagement):
         self.new_version = None
         self.exe_signature = None
         self.zip_signature = None
+        self._backup_created_for_update = False
 
     def check_new_version(
             self,
@@ -121,18 +121,34 @@ class Updater(sys_manager.ProcessManagement):
             attempt,
             http_connection=None,
             ftp_connection=None,
-            progress_callback=None):
+            progress_callback=None,
+            cancel_event=None):
         try:
+            update_flow.check_cancelled(cancel_event)
             http_client = http_connection or http_connect
             ftp_client = ftp_connection or ftp_connect
             if self.update_method == "http":
                 file_path, update_method = http_client.download_file(
-                    file_name, remote_path, timeout_update, max_attempts, attempt)
+                    file_name,
+                    remote_path,
+                    timeout_update,
+                    max_attempts,
+                    attempt,
+                    cancel_event=cancel_event
+                )
                 self.update_method = update_method
             else:
-                file_path = ftp_client.download_file(file_name, remote_path, timeout_update, max_attempts, attempt)[0]
+                file_path = ftp_client.download_file(
+                    file_name,
+                    remote_path,
+                    timeout_update,
+                    max_attempts,
+                    attempt,
+                    cancel_event=cancel_event
+                )[0]
 
             if file_path:
+                update_flow.check_cancelled(cancel_event)
                 update_flow.emit_progress(
                     progress_callback,
                     "manifest_downloaded",
@@ -140,6 +156,7 @@ class Updater(sys_manager.ProcessManagement):
                     progress=36
                 )
                 self.read_manifest()
+                update_flow.check_cancelled(cancel_event)
                 update_flow.emit_progress(
                     progress_callback,
                     "manifest_parsed",
@@ -160,19 +177,25 @@ class Updater(sys_manager.ProcessManagement):
                     self.zip_signature = self.manifest[self.zip_name].get("signature")
                     if self.zip_signature:
                         logger.updater.debug(f"Server ZIP archive signature: '{self.zip_signature}'")
+                        update_flow.check_cancelled(cancel_event)
                         return
                     logger.updater.debug(f"Server ZIP archive signature: '{None}'")
+                update_flow.check_cancelled(cancel_event)
+        except update_flow.UpdateCancelled:
+            raise
         except Exception:
             logger.updater.error(f"Failed to check the file version on the remote server", exc_info=True)
             self.clear_temp()
             os._exit(1)
 
-    def local_version(self, parent_directory, progress_callback=None):
+    def local_version(self, parent_directory, progress_callback=None, cancel_event=None):
         try:
+            update_flow.check_cancelled(cancel_event)
             file_path = f"{parent_directory}\\{self.exe_name}"  # путь до локального файла с которым сравнивается версия
             logger.updater.debug(f"Getting file version information: '{os.path.abspath(file_path)}'")
             local_version = self.get_exe_version(file_path)
             if local_version:
+                update_flow.check_cancelled(cancel_event)
                 logger.updater.info(f"Source file version: {local_version}")
                 update_flow.emit_progress(
                     progress_callback,
@@ -181,19 +204,23 @@ class Updater(sys_manager.ProcessManagement):
                     progress=26
                 )
                 return local_version
+        except update_flow.UpdateCancelled:
+            raise
         except Exception:
             logger.updater.error(f"Failed to check the source file version", exc_info=True)
             self.clear_temp()
             os._exit(1)
 
-    def check_update(self, local_version, progress_callback=None):
+    def check_update(self, local_version, progress_callback=None, cancel_event=None):
         try:
+            update_flow.check_cancelled(cancel_event)
             # Разбиваем версии на части и преобразуем их в числа
             parts1 = list(map(int, self.new_version.split('.')))
             parts2 = list(map(int, local_version.split('.')))
 
             # Сравниваем каждую часть версии, начиная с первой
             for i in range(len(parts1)):
+                update_flow.check_cancelled(cancel_event)
                 if parts1[i] > parts2[i]:
                     update_flow.emit_progress(
                         progress_callback,
@@ -217,6 +244,8 @@ class Updater(sys_manager.ProcessManagement):
                 progress=50
             )
             return False  # Версии идентичны
+        except update_flow.UpdateCancelled:
+            raise
         except Exception:
             logger.updater.error(
                 f"Failed to convert file version information '{self.new_version}' "
@@ -224,16 +253,20 @@ class Updater(sys_manager.ProcessManagement):
             self.clear_temp()
             os._exit(1)
 
-    def upgrade(self, local, attempt, progress_callback=None):
+    def upgrade(self, local, attempt, progress_callback=None, cancel_event=None):
         try:
+            update_flow.check_cancelled(cancel_event)
             logger.updater.debug(f"Path to the previous version executable file was determined: "
                                  f"'{os.path.abspath(self.old_file)}'")
             # Проверяем и удаляем временный файл если он существует
             if os.path.exists(self.temp_old_file):
                 os.remove(self.temp_old_file)
+                self._backup_created_for_update = False
                 logger.updater.debug(f"Deleted existing temporary file: '{os.path.abspath(self.temp_old_file)}'")
 
+            update_flow.check_cancelled(cancel_event)
             os.rename(self.old_file, self.temp_old_file)
+            self._backup_created_for_update = True
             logger.updater.debug(f"Created a backup of the executable file before the update: "
                                  f"'{os.path.abspath(self.temp_old_file)}'")
             update_flow.emit_progress(
@@ -242,9 +275,11 @@ class Updater(sys_manager.ProcessManagement):
                 "Created a backup of the executable file before the update",
                 progress=78
             )
+            update_flow.check_cancelled(cancel_event)
 
             temp_new_file = os.path.join(os.path.dirname(self.manifest_file), self.exe_name)
             logger.updater.debug(f"Path to the temporary update file was determined: '{os.path.abspath(temp_new_file)}'")
+            update_flow.check_cancelled(cancel_event)
             shutil.copy2(temp_new_file, self.old_file)
             logger.updater.debug(f"Temporary file '{temp_new_file}' was copied to directory "
                                  f"'{os.path.abspath(local)}'")
@@ -254,12 +289,16 @@ class Updater(sys_manager.ProcessManagement):
                 f"Temporary file '{temp_new_file}' was copied to directory '{os.path.abspath(local)}'",
                 progress=84
             )
+            update_flow.check_cancelled(cancel_event)
 
             if not self.signature_check_disable_config == self.signature_check_disable_key:
                 logger.updater.debug(f"Checking executable file integrity: '{os.path.abspath(self.old_file)}'")
                 size_file = self.get_size_file(os.path.abspath(self.old_file))
                 temp_file_version = self.get_exe_version(os.path.abspath(self.old_file))
-                file_hash = self.file_sha256(os.path.abspath(self.old_file))
+                file_hash = self.file_sha256(
+                    os.path.abspath(self.old_file),
+                    cancel_event=cancel_event
+                )
 
                 signature_valid = self.verify_metadata(
                     self.exe_signature,
@@ -268,6 +307,7 @@ class Updater(sys_manager.ProcessManagement):
                     os.path.basename(self.old_file),
                     file_hash
                 )
+                update_flow.check_cancelled(cancel_event)
 
                 if not signature_valid:
                     self.restore_file()
@@ -282,8 +322,13 @@ class Updater(sys_manager.ProcessManagement):
                         f"Integrity check passed, file '{os.path.abspath(self.old_file)}' was successfully updated",
                         progress=90
                     )
+                    update_flow.check_cancelled(cancel_event)
                     if self.zip_name:
-                        self.unzip_and_get_files("..")
+                        self.unzip_and_get_files(
+                            "..",
+                            cancel_event=cancel_event,
+                            progress_callback=progress_callback
+                        )
                         update_flow.emit_progress(
                             progress_callback,
                             "archive_extracted",
@@ -300,8 +345,13 @@ class Updater(sys_manager.ProcessManagement):
                     f"File '{os.path.abspath(self.old_file)}' was successfully updated",
                     progress=90
                 )
+                update_flow.check_cancelled(cancel_event)
                 if self.zip_name:
-                    self.unzip_and_get_files("..")
+                    self.unzip_and_get_files(
+                        "..",
+                        cancel_event=cancel_event,
+                        progress_callback=progress_callback
+                    )
                     update_flow.emit_progress(
                         progress_callback,
                         "archive_extracted",
@@ -314,18 +364,34 @@ class Updater(sys_manager.ProcessManagement):
                 logger.updater.info("Update installed")  # Выводим сообщение только если обновление успешно
                 shutil.rmtree(os.path.dirname(self.manifest_file))
                 logger.updater.debug(f"Temporary directory '{os.path.dirname(self.manifest_file)}' deleted")
+                if not self.zip_name:
+                    update_flow.check_cancelled(cancel_event)
+                    update_flow.emit_progress(
+                        progress_callback,
+                        "non_cancellable",
+                        "The update can no longer be safely cancelled",
+                        progress=90
+                    )
                 os.remove(self.temp_old_file)
+                self._backup_created_for_update = False
                 logger.updater.debug(f"Executable file backup "
                                      f"'{os.path.abspath(self.temp_old_file)}' deleted")
                 return True
+        except update_flow.UpdateCancelled:
+            raise
         except Exception:
             if attempt < self.max_attempts_update:
                 logger.updater.warn(
                     f"Attempt ({attempt}) to install the update failed. Retrying in "
                     f"({self.timeout_update}) seconds...")
                 attempt += 1
-                time.sleep(self.timeout_update)
-                return self.upgrade(local, attempt, progress_callback=progress_callback)
+                update_flow.wait_or_cancel(cancel_event, self.timeout_update)
+                return self.upgrade(
+                    local,
+                    attempt,
+                    progress_callback=progress_callback,
+                    cancel_event=cancel_event
+                )
             else:
                 logger.updater.error(f"Failed to perform the update after ({self.max_attempts_update}) attempts",
                                      exc_info=True)
@@ -340,12 +406,14 @@ class Updater(sys_manager.ProcessManagement):
             main_file_path=None,
             http_connection=None,
             ftp_connection=None,
-            progress_callback=None):
+            progress_callback=None,
+            cancel_event=None):
         main_file_path = main_file_path or main_file
         http_client = http_connection or http_connect
         ftp_client = ftp_connection or ftp_connect
         update_successful = False
 
+        update_flow.check_cancelled(cancel_event)
         logger.updater.debug(f"Downloaded file version: {temp_file_version}")
         if temp_file_version != self.new_version:
             logger.updater.warn(f"The downloaded file version differs from the data in 'manifest.json'; "
@@ -355,12 +423,26 @@ class Updater(sys_manager.ProcessManagement):
             return False
 
         if self.zip_name:
+            update_flow.check_cancelled(cancel_event)
             if self.update_method == "http":
                 self.zip_path = http_client.download_file(
-                    self.zip_name, self.remote_path, self.timeout_update, self.max_attempts_update, attempt=1)[0]
+                    self.zip_name,
+                    self.remote_path,
+                    self.timeout_update,
+                    self.max_attempts_update,
+                    attempt=1,
+                    cancel_event=cancel_event
+                )[0]
             else:
                 self.zip_path = ftp_client.download_file(
-                    self.zip_name, self.remote_path, self.timeout_update, self.max_attempts_update, attempt=1)[0]
+                    self.zip_name,
+                    self.remote_path,
+                    self.timeout_update,
+                    self.max_attempts_update,
+                    attempt=1,
+                    cancel_event=cancel_event
+                )[0]
+            update_flow.check_cancelled(cancel_event)
             update_flow.emit_progress(
                 progress_callback,
                 "archive_downloaded",
@@ -370,7 +452,10 @@ class Updater(sys_manager.ProcessManagement):
 
             if not self.signature_check_disable_config == self.signature_check_disable_key:
                 size_file = self.get_size_file(self.zip_path)
-                file_hash = self.file_sha256(os.path.abspath(self.zip_path))
+                file_hash = self.file_sha256(
+                    os.path.abspath(self.zip_path),
+                    cancel_event=cancel_event
+                )
                 signature_valid = self.verify_metadata(
                     self.zip_signature,
                     int(size_file / len(self.zip_name)),
@@ -378,6 +463,7 @@ class Updater(sys_manager.ProcessManagement):
                     self.zip_name,
                     file_hash
                 )
+                update_flow.check_cancelled(cancel_event)
 
                 if not signature_valid:
                     logger.updater.warn(f"ZIP archive '{self.zip_name}' failed authenticity verification")
@@ -391,7 +477,9 @@ class Updater(sys_manager.ProcessManagement):
                     f"ZIP archive '{self.zip_name}' passed authenticity verification",
                     progress=68
                 )
+            update_flow.check_cancelled(cancel_event)
         try:
+            update_flow.check_cancelled(cancel_event)
             if self.action_startup == True:
                 update_flow.emit_progress(
                     progress_callback,
@@ -400,8 +488,12 @@ class Updater(sys_manager.ProcessManagement):
                     progress=70
                 )
                 self.action_run(self.startup_script, main_file_path, timeout=True)
+                update_flow.check_cancelled(cancel_event)
 
-            wait_stop_app = self.check_process_cycle(self.exe_name)
+            wait_stop_app = self.check_process_cycle(
+                self.exe_name,
+                cancel_event=cancel_event
+            )
 
             if wait_stop_app != True:
                 return False
@@ -418,7 +510,8 @@ class Updater(sys_manager.ProcessManagement):
                 update_successful = self.upgrade(
                     "..\\",
                     attempt=1,
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
+                    cancel_event=cancel_event
                 )
 
                 if self.action_completion == True:
@@ -430,6 +523,8 @@ class Updater(sys_manager.ProcessManagement):
                     )
                     self.action_run(self.complete_script, main_file_path)
 
+            except update_flow.UpdateCancelled:
+                raise
             except Exception:
                 logger.updater.error(
                     f"Failed to start the update process",
@@ -448,6 +543,8 @@ class Updater(sys_manager.ProcessManagement):
                 self.clear_temp()
                 os._exit(1)
 
+        except update_flow.UpdateCancelled:
+            raise
         except Exception:
             logger.updater.error(
                 f"Running management scripts failed",
@@ -471,7 +568,8 @@ class Updater(sys_manager.ProcessManagement):
             forwarded_args=None,
             progress_callback=None,
             exit_on_complete=True,
-            cleanup_on_complete=True):
+            cleanup_on_complete=True,
+            cancel_event=None):
         if main_file.startswith(temp_dir): # если udater запущен из временной директории, то запускаем процесс обновления
             try:
                 result = update_flow.UpdateResult(False, False, "The update did not complete correctly")
@@ -483,12 +581,14 @@ class Updater(sys_manager.ProcessManagement):
                 update_flow.initialize_connection(self, http_connect, ftp_connect, progress_callback=progress_callback)
 
                 try:
+                    update_flow.check_cancelled(cancel_event)
                     status_update = update_flow.check_for_update(
                         self,
                         http_connect,
                         ftp_connect,
                         application_directory="..",
-                        progress_callback=progress_callback
+                        progress_callback=progress_callback,
+                        cancel_event=cancel_event
                     )
 
                     if status_update == True:
@@ -499,12 +599,26 @@ class Updater(sys_manager.ProcessManagement):
                             "Update found",
                             progress=54
                         )
+                        update_flow.check_cancelled(cancel_event)
                         if self.update_method == "http":
                             temp_exe_file = http_connect.download_file(
-                                self.exe_name, self.remote_path, self.timeout_update, self.max_attempts_update, attempt=1)[0]
+                                self.exe_name,
+                                self.remote_path,
+                                self.timeout_update,
+                                self.max_attempts_update,
+                                attempt=1,
+                                cancel_event=cancel_event
+                            )[0]
                         else:
                             temp_exe_file = ftp_connect.download_file(
-                                self.exe_name, self.remote_path, self.timeout_update, self.max_attempts_update, attempt=1)[0]
+                                self.exe_name,
+                                self.remote_path,
+                                self.timeout_update,
+                                self.max_attempts_update,
+                                attempt=1,
+                                cancel_event=cancel_event
+                            )[0]
+                        update_flow.check_cancelled(cancel_event)
                         update_flow.emit_progress(
                             progress_callback,
                             "update_file_downloaded",
@@ -514,7 +628,10 @@ class Updater(sys_manager.ProcessManagement):
 
                         size_file = self.get_size_file(temp_exe_file)
                         temp_file_version = self.get_exe_version(temp_exe_file)
-                        file_hash = self.file_sha256(os.path.abspath(temp_exe_file))
+                        file_hash = self.file_sha256(
+                            os.path.abspath(temp_exe_file),
+                            cancel_event=cancel_event
+                        )
 
                         if not self.signature_check_disable_config == self.signature_check_disable_key:
                             signature_valid = self.verify_metadata(
@@ -524,6 +641,7 @@ class Updater(sys_manager.ProcessManagement):
                                 self.exe_name,
                                 file_hash
                             )
+                            update_flow.check_cancelled(cancel_event)
 
                             if not signature_valid:
                                 logger.updater.warn(f"File '{self.exe_name}' failed authenticity verification")
@@ -546,7 +664,8 @@ class Updater(sys_manager.ProcessManagement):
                                     main_file_path=main_file,
                                     http_connection=http_connect,
                                     ftp_connection=ftp_connect,
-                                    progress_callback=progress_callback
+                                    progress_callback=progress_callback,
+                                    cancel_event=cancel_event
                                 )
                                 if update_status:
                                     result = update_flow.completed_result(updated=True)
@@ -557,7 +676,8 @@ class Updater(sys_manager.ProcessManagement):
                                 main_file_path=main_file,
                                 http_connection=http_connect,
                                 ftp_connection=ftp_connect,
-                                progress_callback=progress_callback
+                                progress_callback=progress_callback,
+                                cancel_event=cancel_event
                             )
                             if update_status:
                                 result = update_flow.completed_result(updated=True)
@@ -566,6 +686,23 @@ class Updater(sys_manager.ProcessManagement):
                         self.clear_update_resources()
                         result = update_flow.completed_result(updated=False)
 
+                except update_flow.UpdateCancelled:
+                    logger.updater.info("The update was cancelled by the user")
+                    rollback_successful = self.rollback_cancelled_update()
+                    self.clear_update_resources()
+                    if rollback_successful:
+                        result = update_flow.UpdateResult(
+                            False,
+                            False,
+                            "The update was cancelled",
+                            cancelled=True
+                        )
+                    else:
+                        result = update_flow.UpdateResult(
+                            False,
+                            False,
+                            "Failed to restore the original executable after update cancellation"
+                        )
                 except Exception:
                     logger.updater.error(f"Failed to perform the update", exc_info=True)
                     result = update_flow.UpdateResult(False, False, "Failed to perform the update")
@@ -577,6 +714,13 @@ class Updater(sys_manager.ProcessManagement):
                         result.message,
                         status="completed",
                         progress=100
+                    )
+                elif result.cancelled:
+                    update_flow.emit_progress(
+                        progress_callback,
+                        "cancelled",
+                        result.message,
+                        status="cancelled"
                     )
                 elif progress_callback is not None:
                     update_flow.emit_progress(

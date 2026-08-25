@@ -12,6 +12,7 @@ import hashlib
 import win32api
 import stat
 import zipfile
+import update_flow
 
 class ResourceManagement:
     signature_check_disable_key = "aTdW<<9XyeqNM*LS2<"
@@ -98,9 +99,34 @@ class ResourceManagement:
             logger.updater.critical(f"Failed to restore backup of file '{os.path.abspath(self.old_file)}'",
                                     exc_info=True)
 
-    def unzip_and_get_files(self, extract_path):
+    def rollback_cancelled_update(self):
+        if not getattr(self, "_backup_created_for_update", False):
+            return True
+
+        if not os.path.exists(self.temp_old_file):
+            logger.updater.critical(
+                f"Failed to restore backup of file '{os.path.abspath(self.old_file)}': backup not found"
+            )
+            return False
+
+        try:
+            os.replace(self.temp_old_file, self.old_file)
+            self._backup_created_for_update = False
+            logger.updater.info(
+                f"Backup of file '{os.path.abspath(self.old_file)}' was restored after update cancellation"
+            )
+            return True
+        except Exception:
+            logger.updater.critical(
+                f"Failed to restore backup of file '{os.path.abspath(self.old_file)}' after update cancellation",
+                exc_info=True
+            )
+            return False
+
+    def unzip_and_get_files(self, extract_path, cancel_event=None, progress_callback=None):
         self.zip_files_list = []
         try:
+            update_flow.check_cancelled(cancel_event)
             # Открываем zip архив
             with zipfile.ZipFile(self.zip_path, 'r') as zip_ref:
                 # Получаем список всех файлов в архиве
@@ -109,26 +135,40 @@ class ResourceManagement:
                         self.zip_files_list.append(file_info.filename)
                 # Распаковываем архив
                 logger.updater.debug(f"File list read from the archive: '{self.zip_files_list}'")
+                update_flow.check_cancelled(cancel_event)
+                update_flow.emit_progress(
+                    progress_callback,
+                    "non_cancellable",
+                    "The update can no longer be safely cancelled",
+                    progress=90
+                )
                 zip_ref.extractall(extract_path)
                 logger.updater.info(f"ZIP archive '{self.zip_path}' was successfully extracted to '{os.path.abspath(extract_path)}'")
+        except update_flow.UpdateCancelled:
+            raise
         except Exception:
             logger.updater.error(f"Error while extracting archive '{self.zip_path}'", exc_info=True)
             self.restore_file()
             raise
 
-    def file_sha256(self, path, chunk_size=1024 * 1024):
+    def file_sha256(self, path, chunk_size=1024 * 1024, cancel_event=None):
         sha256 = hashlib.sha256()
         logger.updater.debug(f"Calculating SHA-256 for file: '{path}'")
         try:
+            update_flow.check_cancelled(cancel_event)
             with open(path, "rb") as f:
                 while True:
+                    update_flow.check_cancelled(cancel_event)
                     chunk = f.read(chunk_size)
                     if not chunk:
                         break
                     sha256.update(chunk)
+            update_flow.check_cancelled(cancel_event)
             file_hash = str(sha256.hexdigest())
             logger.updater.debug(f"SHA-256 calculated successfully: {file_hash}")
             return file_hash
+        except update_flow.UpdateCancelled:
+            raise
         except Exception:
             logger.updater.error(f"Failed to calculate SHA-256 for file: '{path}'", exc_info=True)
             return None
@@ -404,17 +444,18 @@ class ProcessManagement(ResourceManagement):
                 f"Failed to get process status for '{file_name}' via CMD (tasklist|findstr)", exc_info=True)
             return None
 
-    def check_process_cycle(self, exe_name):
+    def check_process_cycle(self, exe_name, cancel_event=None):
         count_attempt = int(self.action_timeout / 5 + 1)
 
         try:
             logger.updater.info(f"Checking process activity for '{exe_name}'")
             for attempt in range(count_attempt):
+                update_flow.check_cancelled(cancel_event)
                 process_found = self.check_process(exe_name)
 
                 if process_found is True:
                     logger.updater.debug(f"Next check in (5) seconds.")
-                    time.sleep(5)
+                    update_flow.wait_or_cancel(cancel_event, 5)
                     continue
 
                 if process_found is False:
@@ -430,6 +471,8 @@ class ProcessManagement(ResourceManagement):
                 f"Process '{exe_name}' remains active for ({self.action_timeout}) seconds; "
                 f"the update process will be interrupted")
             return False
+        except update_flow.UpdateCancelled:
+            raise
         except Exception:
             logger.updater.error(f"Failed to track process state for '{exe_name}'", exc_info=True)
             self.clear_temp()

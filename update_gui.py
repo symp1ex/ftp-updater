@@ -11,8 +11,9 @@ from update_flow import ProgressEvent, UpdateResult
 
 def run_upgrade_gui(worker, close_callback):
     events = queue.Queue()
+    cancel_event = threading.Event()
     root = tk.Tk()
-    root.title(f"Updater v{about.version}")
+    root.title(f"FP-Updater v{about.version}")
     root.geometry("540x200")
     root.minsize(540, 200)
     root.maxsize(540, 200)
@@ -49,21 +50,30 @@ def run_upgrade_gui(worker, close_callback):
 
     close_button = ttk.Button(root, text="Close", command=lambda: close_window())
     close_button.grid(row=5, column=0, sticky="e", padx=16, pady=(0, 16))
-    close_button.state(["disabled"])
 
     worker_done = {"value": False}
     worker_result = {"value": None}
+    cancellable = {"value": True}
+    cancel_requested = {"value": False}
+    terminal_event = {"value": None}
 
     def publish(event):
-        events.put(event)
+        if event.status in ("completed", "cancelled", "error"):
+            terminal_event["value"] = event
+        else:
+            events.put(event)
 
     def run_worker():
         try:
-            result = worker(publish)
+            result = worker(publish, cancel_event)
             worker_result["value"] = result
-            if isinstance(result, UpdateResult):
+            if terminal_event["value"] is not None:
+                events.put(terminal_event["value"])
+            elif isinstance(result, UpdateResult):
                 if result.success:
                     events.put(ProgressEvent("completed", result.message, "completed", 100))
+                elif result.cancelled:
+                    events.put(ProgressEvent("cancelled", result.message, "cancelled", None))
                 else:
                     events.put(ProgressEvent("error", result.message, "error", None))
         except Exception:
@@ -80,27 +90,48 @@ def run_upgrade_gui(worker, close_callback):
         if event.progress is not None:
             progress["value"] = event.progress
 
+        if event.step == "non_cancellable":
+            cancellable["value"] = False
+            close_button.state(["disabled"])
+
         if event.status == "error":
             worker_done["value"] = True
             error_var.set(event.message)
             close_button.state(["!disabled"])
+        elif event.status == "cancelled":
+            worker_done["value"] = True
+            error_var.set("")
+            root.after_idle(root.destroy)
         elif event.status == "completed":
             worker_done["value"] = True
             error_var.set("")
             progress["value"] = 100
-            close_button.state(["!disabled"])
+            root.after_idle(root.destroy)
 
-    def drain_events():
+    def apply_pending_events():
         while True:
             try:
                 apply_event(events.get_nowait())
             except queue.Empty:
                 break
+
+    def drain_events():
+        apply_pending_events()
         root.after(100, drain_events)
 
     def close_window():
+        apply_pending_events()
         if not worker_done["value"]:
-            message_var.set("Wait for the update to complete")
+            if not cancellable["value"]:
+                message_var.set("The update can no longer be safely cancelled")
+                return
+            if cancel_requested["value"]:
+                return
+            cancel_requested["value"] = True
+            cancel_event.set()
+            stage_var.set("Cancelling")
+            message_var.set("Cancelling the update...")
+            close_button.state(["disabled"])
             return
         root.destroy()
 
@@ -133,6 +164,8 @@ def _stage_title(step):
         "completion_action_started": "Completion action",
         "post_update_command_started": "Post-update command",
         "cleanup_completed": "Cleanup",
+        "non_cancellable": "Finishing the update",
+        "cancelled": "Cancelled",
         "completed": "Completed",
         "error": "Error",
     }

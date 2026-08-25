@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import time
 from typing import Callable, Optional
 
 import logger
@@ -17,6 +18,24 @@ class UpdateResult:
     success: bool
     updated: bool
     message: str
+    cancelled: bool = False
+
+
+class UpdateCancelled(Exception):
+    pass
+
+
+def check_cancelled(cancel_event):
+    if cancel_event is not None and cancel_event.is_set():
+        raise UpdateCancelled("The update was cancelled")
+
+
+def wait_or_cancel(cancel_event, timeout):
+    if cancel_event is None:
+        time.sleep(timeout)
+        return
+    if cancel_event.wait(timeout):
+        raise UpdateCancelled("The update was cancelled")
 
 
 class ProgressReporter:
@@ -59,11 +78,22 @@ def initialize_connection(updater, http_connection, ftp_connection, progress_cal
     emit_progress(progress_callback, "connection_initialized", message, progress=8)
 
 
-def check_for_update(updater, http_connection, ftp_connection, application_directory, progress_callback=None):
+def check_for_update(
+        updater,
+        http_connection,
+        ftp_connection,
+        application_directory,
+        progress_callback=None,
+        cancel_event=None):
     message = "Checking for updates"
     logger.updater.info(message)
 
-    local_version = updater.local_version(application_directory, progress_callback=progress_callback)
+    check_cancelled(cancel_event)
+    local_version = updater.local_version(
+        application_directory,
+        progress_callback=progress_callback,
+        cancel_event=cancel_event
+    )
     updater.check_new_version(
         updater.manifest_file,
         updater.remote_path,
@@ -72,9 +102,15 @@ def check_for_update(updater, http_connection, ftp_connection, application_direc
         attempt=1,
         http_connection=http_connection,
         ftp_connection=ftp_connection,
-        progress_callback=progress_callback
+        progress_callback=progress_callback,
+        cancel_event=cancel_event
     )
-    return updater.check_update(local_version, progress_callback=progress_callback)
+    check_cancelled(cancel_event)
+    return updater.check_update(
+        local_version,
+        progress_callback=progress_callback,
+        cancel_event=cancel_event
+    )
 
 
 def completed_result(updated):
