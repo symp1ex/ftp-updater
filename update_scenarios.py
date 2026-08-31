@@ -76,10 +76,14 @@ def run_exit_command(updater, command, application_directory, progress_callback=
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
     try:
+        env = os.environ.copy()
+        env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+
         subprocess.Popen(
             ["cmd.exe", "/d", "/c", command],
             cwd=application_directory,
             creationflags=creation_flags,
+            env=env,
         )
         return True
     except Exception:
